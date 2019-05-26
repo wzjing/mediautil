@@ -64,13 +64,22 @@ int encode_title(const char *title, AVFormatContext *formatContext,
     char filter_description[512];
     snprintf(filter_description, 512,
              "gblur=sigma=20:steps=6[blur];"
-             "[blur]drawtext=fontsize=%d:fontcolor=white:text='%s':x=w/2-text_w/2:y=h/2-text_h/2[text];"
-             "color=white:200x200[canvas];[text][canvas]overlay=300:300",
+             "color=black:%dx%d[canvas];"
+             "[canvas]setsar=1,drawtext=fontsize=%d:fontcolor=white:text='%s':x=w/2-text_w/2:y=h/2-text_h/2,split[text][alpha];"
+             "[text][alpha]alphamerge,rotate=3*PI/2[ov];"
+             "[blur][ov]overlay=w/2:0",
+             srcVideoFrame->height,
+             srcVideoFrame->height,
              fontSize, title);
     LOGD(TAG, "filter: %s\n", filter_description);
     VideoConfig inConfig((AVPixelFormat) srcVideoFrame->format, srcVideoFrame->width, srcVideoFrame->height);
     VideoConfig outConfig((AVPixelFormat) videoFrame->format, videoFrame->width, videoFrame->height);
-    filter.create(filter_description, &inConfig, &outConfig);
+    ret = filter.create(filter_description, &inConfig, &outConfig);
+
+    if (ret <0) {
+        LOGE(TAG, "unable to create filter");
+        goto error;
+    }
 
     filter.dumpGraph();
 
@@ -153,25 +162,19 @@ int encode_title(const char *title, AVFormatContext *formatContext,
                 audioFrame->pict_type = AV_PICTURE_TYPE_NONE;
                 audioFrame->pts = audio_frame_pts;
                 audio_frame_pts += srcAudioFrame->nb_samples;
-//                logFrame(audioFrame, "Out", 0);
                 avcodec_send_frame(audioCodecContext, audioFrame);
             }
             while (true) {
                 ret = avcodec_receive_packet(audioCodecContext, packet);
                 if (ret == 0) {
-//                    logPacket(packet, "A");
                     if (packet->pts == 0) {
-//                        first_audio = packet->pts;
                         first_audio_set = 1;
                     }
-//                    if (packet->pts < 0) continue;
                     if (!first_audio_set) continue;
                     av_packet_rescale_ts(packet, audioCodecContext->time_base, audioStream->time_base);
                     packet->stream_index = audioStream->index;
                     packet->pts += audio_start_pts;
                     packet->dts += audio_start_dts;
-//                    if (packet->pts < first_audio) continue;
-//                    if (packet->pts <= (next_audio_pts - srcAudioFrame->pkt_duration)) continue;
                     next_audio_pts = packet->pts + srcAudioFrame->pkt_duration;
                     next_audio_dts = packet->dts + srcAudioFrame->pkt_duration;
 #ifdef DEBUG
@@ -226,6 +229,7 @@ int concat_add_title(const char *output_filename, const char **input_filenames, 
 
     for (int i = 0; i < nb_inputs; ++i) {
         videos[i] = (Video *) malloc(sizeof(Video));
+        videos[i]->formatContext = nullptr;
     }
 
     // output video
@@ -277,7 +281,7 @@ int concat_add_title(const char *output_filename, const char **input_filenames, 
     }
 
     // create output AVFormatContext
-    ret = avformat_alloc_output_context2(&outFmtContext, nullptr, "mpegts", output_filename);
+    ret = avformat_alloc_output_context2(&outFmtContext, nullptr, nullptr, output_filename);
     if (ret < 0) {
         LOGE(TAG, "");
         return -1;
@@ -312,7 +316,7 @@ int concat_add_title(const char *output_filename, const char **input_filenames, 
     outVideoContext->pix_fmt = baseVideo->videoCodecContext->pix_fmt;
     outVideoContext->bit_rate = baseVideo->videoCodecContext->bit_rate;
     outVideoContext->has_b_frames = baseVideo->videoCodecContext->has_b_frames;
-    outVideoContext->gop_size = baseVideo->videoCodecContext->gop_size;
+    outVideoContext->gop_size = 30;
     outVideoContext->qmin = baseVideo->videoCodecContext->qmin;
     outVideoContext->qmax = baseVideo->videoCodecContext->qmax;
     outVideoContext->time_base = (AVRational) {baseVideo->videoStream->r_frame_rate.den,
@@ -324,6 +328,8 @@ int concat_add_title(const char *output_filename, const char **input_filenames, 
         av_dict_set(&opt, "preset", "fast", 0);
         av_dict_set(&opt, "tune", "zerolatency", 0);
     }
+    if (outFmtContext->oformat->flags & AVFMT_GLOBALHEADER)
+        outVideoContext->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     ret = avcodec_open2(outVideoContext, outVideoCodec, &opt);
     if (ret < 0) {
         LOGE(TAG, "unable to create output video codec context: %s\n", av_err2str(ret));
@@ -351,11 +357,13 @@ int concat_add_title(const char *output_filename, const char **input_filenames, 
     outAudioContext->time_base = (AVRational) {1, outAudioContext->sample_rate};
     outAudioStream->time_base = outAudioContext->time_base;
     av_dict_free(&opt);
-    opt = nullptr;
-    if (outVideoContext->codec_id == AV_CODEC_ID_AAC) {
-        av_dict_set(&opt, "profile", "23", 0);
-    }
-    ret = avcodec_open2(outAudioContext, outAudioCodec, &opt);
+//    opt = nullptr;
+//    if (outVideoContext->codec_id == AV_CODEC_ID_AAC) {
+//        av_dict_set(&opt, "profile", "23", 0);
+//    }
+    if (outFmtContext->oformat->flags & AVFMT_GLOBALHEADER)
+        outAudioContext->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+    ret = avcodec_open2(outAudioContext, outAudioCodec, nullptr);
     if (ret < 0) {
         LOGE(TAG, "unable to create output audio codec context: %s\n", av_err2str(ret));
         return -1;
@@ -487,7 +495,10 @@ int concat_add_title(const char *output_filename, const char **input_filenames, 
         ret = encode_title(titles[i], outFmtContext, audioFrame, videoFrame, outAudioContext, outVideoContext,
                      outAudioStream, outVideoStream, last_audio_pts, last_audio_dts, last_video_pts, last_video_dts);
 
-        if (ret < 0) return -1;
+        if (ret < 0) {
+            LOGE(TAG, "encode title failed for file: %s\n", input_filenames[i]);
+            return -1;
+        }
 
         av_seek_frame(inFormatContext, inAudioStream->index, 0, 0);
         av_seek_frame(inFormatContext, inVideoStream->index, 0, 0);
@@ -543,9 +554,10 @@ int concat_add_title(const char *output_filename, const char **input_filenames, 
                     annexPacket->dts += last_video_dts;
                     next_video_pts = annexPacket->pts + annexPacket->duration;
                     next_video_dts = annexPacket->dts + annexPacket->duration;
+                    annexPacket->flags = packet->flags;
 
 #ifdef DEBUG
-                    logPacket(annexPacket, &outVideoStream->time_base, "V");
+                    logPacket(annexPacket, &outVideoStream->time_base, "Annex");
 #endif
                     av_interleaved_write_frame(outFmtContext, annexPacket);
                     av_packet_free(&annexPacket);

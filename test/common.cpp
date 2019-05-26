@@ -11,7 +11,7 @@ std::string getPath() {
         result += buffer.data();
     }
 
-    result.erase(std::remove(result.begin(), result.end(), '\n'), result.end());
+    result.erase(result.find_last_of('\n'), 1);
     return result;
 }
 

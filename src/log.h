@@ -5,6 +5,23 @@
 #ifndef VIDEOBOX_LOG_H
 #define VIDEOBOX_LOG_H
 
+
+#ifdef __ANDROID__
+
+#include <android/log.h>
+
+#ifdef DEBUG
+#define LOGD(TAG, format, ...)  __android_log_print(ANDROID_LOG_DEBUG, TAG, format, ## __VA_ARGS__)
+#define LOGI(TAG, format, ...) __android_log_print(ANDROID_LOG_INFO, TAG, format , ## __VA_ARGS__)
+#else
+#define LOGD(TAG, format, ...)
+#define LOGI(TAG, format, ...)
+#endif
+#define LOGW(TAG, format, ...) __android_log_print(ANDROID_LOG_WARN, TAG, format , ## __VA_ARGS__)
+#define LOGE(TAG, format, ...) __android_log_print(ANDROID_LOG_ERROR, TAG, format , ## __VA_ARGS__)
+
+#else
+
 #include <cstdio>
 
 #ifdef DEBUG
@@ -16,6 +33,9 @@
 #endif
 #define LOGW(TAG, format, ...) printf("\033[33m" TAG ":" format "\033[0m", ## __VA_ARGS__)
 #define LOGE(TAG, format, ...) fprintf(stderr,"\033[31m" TAG ":" format "\033[0m", ## __VA_ARGS__)
+
+#endif
+
 
 extern "C" {
 #include <libavcodec/avcodec.h>

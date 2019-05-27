@@ -2,7 +2,7 @@ link_libraries(mediautil)
 
 set(CMAKE_CXX_STANDARD 11)
 
-add_definitions("-DVIDEO_SOURCE=\"${CMAKE_CURRENT_SOURCE_DIR}/assets/video.mp4\""
+add_definitions("-DVIDEO_SOURCE=\"${CMAKE_CURRENT_SOURCE_DIR}/assets/video0.mp4\""
         "-DAUDIO_SOURCE=\"${CMAKE_CURRENT_SOURCE_DIR}/assets/audio.aac\"")
 
 set(TEST_BASE common.h common.cpp)

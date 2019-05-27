@@ -1,6 +1,5 @@
 #include <cstdio>
 #include <mediautil/concat.h>
-#include <mediautil/remux.h>
 #include "common.h"
 
 int main(int argc, char *argv[]) {
@@ -13,9 +12,6 @@ int main(int argc, char *argv[]) {
         const char *inputs[]{VIDEO_SOURCE, VIDEO_SOURCE};
         const char *titles[]{"Video 1: this is the first video\nstart", "Video 2"};
 
-        Mp4Meta* meta = nullptr;
-
-        getMeta(&meta, inputs[0]);
 
 //        int ret = concat_add_title(ts_filename.c_str(), inputs, titles, 2, 40, 2);
         int ret = concat_encode(output_filename.c_str(), inputs, titles, 2, 40, 2);

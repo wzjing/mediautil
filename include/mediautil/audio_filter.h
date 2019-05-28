@@ -42,9 +42,11 @@ public:
 
     void dumpGraph();
 
-    int filter(AVFrame *input1, AVFrame* input2);
-
     int filter(AVFrame *input1, AVFrame* input2, AVFrame* result);
+
+    int addFrame(AVFrame *input1, AVFrame* input2);
+
+    int getFrame(AVFrame* result);
 
     void destroy();
 };

@@ -21,7 +21,6 @@ int AudioFilter::create(const char *filter_descr, AudioConfig* inConfig1, AudioC
     char ch_layout[128];
     int nb_channels = 0;
     int pix_fmts[] = {outConfig->format, AV_SAMPLE_FMT_NONE};
-    int sample_rates[] = {44100, 48000};
 
     filter_graph = avfilter_graph_alloc();
     if (!inputs[0] || !inputs[1] || !output || !filter_graph) {
@@ -40,6 +39,7 @@ int AudioFilter::create(const char *filter_descr, AudioConfig* inConfig1, AudioC
              nb_channels,
              inConfig1->timebase.num,
              inConfig1->timebase.den);
+    LOGD(TAG, "input1: %s\n", args);
     ret = avfilter_graph_create_filter(&buffersrc1_ctx, buffersrc, "in1",
                                        args, nullptr, filter_graph);
     if (ret < 0) {
@@ -57,6 +57,7 @@ int AudioFilter::create(const char *filter_descr, AudioConfig* inConfig1, AudioC
              nb_channels,
              inConfig2->timebase.num,
              inConfig2->timebase.den);
+    LOGD(TAG, "input2: %s\n", args);
     ret = avfilter_graph_create_filter(&buffersrc2_ctx, buffersrc, "in2",
                                        args, nullptr, filter_graph);
     if (ret < 0) {
@@ -115,42 +116,19 @@ void AudioFilter::dumpGraph() {
     LOGD(TAG, "AudioFilter Graph(%s):\n%s\n",this->description, avfilter_graph_dump(filter_graph, nullptr));
 }
 
-int AudioFilter::filter(AVFrame *input1, AVFrame *input2) {
-
-    int ret = av_buffersrc_add_frame(buffersrc1_ctx, input1);
-    if (ret < 0) {
-        LOGE(TAG, "add audio input1 error: %s\n", av_err2str(ret));
-        return -1;
-    }
-
-    ret = av_buffersrc_add_frame(buffersrc2_ctx, input2);
-    if (ret < 0) {
-        LOGE(TAG, "add audio input1 error: %s\n", av_err2str(ret));
-        return -1;
-    }
-
-//    av_frame_unref(input1);
-    ret = av_buffersink_get_frame(buffersink_ctx, input1);
-    if (ret < 0) {
-        LOGE(TAG, "get audio output error: %s\n", av_err2str(ret));
-        return -1;
-    }
-    return 0;
-}
-
 void AudioFilter::destroy() {
     if (filter_graph)
         avfilter_graph_free(&filter_graph);
 }
 
 int AudioFilter::filter(AVFrame *input1, AVFrame *input2, AVFrame *result) {
-    int ret = av_buffersrc_add_frame(buffersrc1_ctx, input1);
+    int ret = av_buffersrc_add_frame_flags(buffersrc1_ctx, input1, AV_BUFFERSRC_FLAG_KEEP_REF);
     if (ret < 0) {
         LOGE(TAG, "add audio input1 error: %s\n", av_err2str(ret));
         return -1;
     }
 
-    ret = av_buffersrc_add_frame(buffersrc2_ctx, input2);
+    ret = av_buffersrc_add_frame_flags(buffersrc2_ctx, input2, AV_BUFFERSRC_FLAG_KEEP_REF);
     if (ret < 0) {
         LOGE(TAG, "add audio input1 error: %s\n", av_err2str(ret));
         return -1;
@@ -163,3 +141,28 @@ int AudioFilter::filter(AVFrame *input1, AVFrame *input2, AVFrame *result) {
     }
     return 0;
 }
+
+int AudioFilter::addFrame(AVFrame *input1, AVFrame* input2) {
+    int ret = av_buffersrc_add_frame_flags(buffersrc1_ctx, input1, AV_BUFFERSRC_FLAG_KEEP_REF);
+    if (ret < 0) {
+        LOGE(TAG, "add audio input1 error: %s\n", av_err2str(ret));
+        return -1;
+    }
+
+    ret = av_buffersrc_add_frame_flags(buffersrc2_ctx, input2, AV_BUFFERSRC_FLAG_KEEP_REF);
+    if (ret < 0) {
+        LOGE(TAG, "add audio input1 error: %s\n", av_err2str(ret));
+        return -1;
+    }
+    return 0;
+}
+
+int AudioFilter::getFrame(AVFrame *result) {
+    int ret = av_buffersink_get_frame(buffersink_ctx, result);
+    if (ret < 0) {
+        LOGE(TAG, "get audio output error: %s\n", av_err2str(ret));
+        return -1;
+    }
+    return 0;
+}
+

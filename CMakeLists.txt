@@ -34,7 +34,8 @@ set(HEADERS
         src/concat.h
         src/log.h
         src/remux.h
-        src/metadata.h)
+        src/metadata.h
+        src/clip.h)
 set(SOURCES
         src/video_filter.cpp
         src/audio_filter.cpp
@@ -42,7 +43,7 @@ set(SOURCES
         src/concat.cpp
         src/log.cpp
         src/remux.cpp
-        src/metadata.cpp)
+        src/metadata.cpp src/clip.cpp)
 
 set(MEDIAUTIL_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
 set(MEDIAUTIL_LIB_DIR ${CMAKE_SOURCE_DIR}/lib)

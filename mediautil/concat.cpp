@@ -233,6 +233,11 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
     for (int i = 0; i < nb_inputs; ++i) {
         videos[i] = (Video *) malloc(sizeof(Video));
         videos[i]->formatContext = nullptr;
+        videos[i]->videoStream = nullptr;
+        videos[i]->audioStream = nullptr;
+        videos[i]->videoCodecContext = nullptr;
+        videos[i]->audioCodecContext = nullptr;
+        videos[i]->isTsVideo = 0;
     }
 
     // output video

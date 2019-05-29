@@ -12,7 +12,7 @@ extern "C" {
 
 #define TAG "clip"
 
-#define check(ret, msg) if(ret < 0) {\
+#define checkret(ret, msg) if(ret < 0) {\
                             LOGE(TAG, "%s: %s", msg, av_err2str(ret));\
                             return -1;\
                         }
@@ -32,12 +32,12 @@ int clip(const char *output_filename, const char *input_filename, float from, fl
     int ret = 0;
 
     ret = avformat_open_input(&inFmtCtx, input_filename, nullptr, nullptr);
-    check(ret, "open input error")
+    checkret(ret, "open input error")
     ret = avformat_find_stream_info(inFmtCtx, nullptr);
-    check(ret, "find input info error")
+    checkret(ret, "find input info error")
 
     ret = avformat_alloc_output_context2(&outFmtCtx, nullptr, nullptr, output_filename);
-    check(ret, "open output error")
+    checkret(ret, "open output error")
 
     int isGif = strcmp(outFmtCtx->oformat->name, "gif") == 0;
 
@@ -50,16 +50,16 @@ int clip(const char *output_filename, const char *input_filename, float from, fl
             if (isGif) continue;
             AVStream *inAudioStream = inFmtCtx->streams[i];
             AVStream *outAudioStream = avformat_new_stream(outFmtCtx, nullptr);
-            check(ret, "unable to create output audio stream")
+            checkret(ret, "unable to create output audio stream")
             ret = avcodec_parameters_copy(outAudioStream->codecpar, inAudioStream->codecpar);
-            check(ret, "copy audio parameter error")
+            checkret(ret, "copy audio parameter error")
             stream_map[i] = outFmtCtx->nb_streams - 1;
             av_dict_copy(&outAudioStream->metadata, inAudioStream->metadata, 0);
         } else if (inFmtCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
             video_idx = i;
             AVStream *inVideoStream = inFmtCtx->streams[i];
             AVStream *outVideoStream = avformat_new_stream(outFmtCtx, nullptr);
-            check(ret, "unable to create output video stream")
+            checkret(ret, "unable to create output video stream")
             stream_map[i] = outFmtCtx->nb_streams - 1;
             av_dict_copy(&outVideoStream->metadata, inVideoStream->metadata, 0);
 
@@ -67,9 +67,9 @@ int clip(const char *output_filename, const char *input_filename, float from, fl
                 const AVCodec *inCodec = avcodec_find_decoder(inVideoStream->codecpar->codec_id);
                 videoCodecCtx = avcodec_alloc_context3(inCodec);
                 ret = avcodec_parameters_to_context(videoCodecCtx, inVideoStream->codecpar);
-                check(ret, "unable to copy parameter to decode context")
+                checkret(ret, "unable to copy parameter to decode context")
                 ret = avcodec_open2(videoCodecCtx, inCodec, nullptr);
-                check(ret, "unable to open decode context")
+                checkret(ret, "unable to open decode context")
 
                 const AVCodec *codec = avcodec_find_encoder(AV_CODEC_ID_GIF);
                 gifCodecCtx = avcodec_alloc_context3(codec);
@@ -78,14 +78,14 @@ int clip(const char *output_filename, const char *input_filename, float from, fl
                 gifCodecCtx->pix_fmt = AV_PIX_FMT_RGB8;
                 gifCodecCtx->width = videoCodecCtx->width;
                 gifCodecCtx->height = videoCodecCtx->height;
-                check(ret, "error while copy parameter")
+                checkret(ret, "error while copy parameter")
                 ret = avcodec_open2(gifCodecCtx, codec, nullptr);
-                check(ret, "unable to open gif encode context")
+                checkret(ret, "unable to open gif encode context")
                 ret = avcodec_parameters_from_context(outVideoStream->codecpar, gifCodecCtx);
-                check(ret, "unable to copy parameter to stream")
+                checkret(ret, "unable to copy parameter to stream")
             } else {
                 ret = avcodec_parameters_copy(outVideoStream->codecpar, inVideoStream->codecpar);
-                check(ret, "copy video parameter error")
+                checkret(ret, "copy video parameter error")
             }
         }
     }
@@ -93,11 +93,11 @@ int clip(const char *output_filename, const char *input_filename, float from, fl
 
     if (!(outFmtCtx->flags & AVFMT_NOFILE)) {
         ret = avio_open(&outFmtCtx->pb, output_filename, AVIO_FLAG_WRITE);
-        check(ret, "could not open output file")
+        checkret(ret, "could not open output file")
     }
 
     ret = avformat_write_header(outFmtCtx, nullptr);
-    check(ret, "could not write header")
+    checkret(ret, "could not write header")
 
     int64_t first_pts = av_rescale_q_rnd((int64_t) from, (AVRational) {1, 1},
                                          inFmtCtx->streams[video_idx]->time_base,
@@ -173,7 +173,7 @@ int clip(const char *output_filename, const char *input_filename, float from, fl
                                      outFmtCtx->streams[stream_map[video_idx]]->time_base);
                 logPacket(&gifPkt, &outFmtCtx->streams[video_idx]->time_base, "gif-s");
                 ret = av_interleaved_write_frame(outFmtCtx, &gifPkt);
-                check(ret, "unable to write gif frame")
+                checkret(ret, "unable to write gif frame")
             }
         } else {
             packet.stream_index = stream_map[packet.stream_index];

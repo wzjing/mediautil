@@ -1,7 +1,7 @@
 #include "common.h"
 
 std::string getPath() {
-    std::array<char, 128> buffer{};
+    std::array<char, 128> buffer{0};
     std::string result;
     std::unique_ptr<FILE, decltype(&pclose)> pipe(popen("pwd", "r"), pclose);
     if (!pipe) {

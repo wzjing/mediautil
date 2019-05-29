@@ -11,13 +11,18 @@
 #include <array>
 #include <cstdio>
 
-#ifndef VIDEO_SOURCE
-#define VIDEO_SOURCE nullptr
+#ifdef ASSET_DIR
+#define ASSET(name) ASSET_DIR name
+#else
+#define ASSET(name) nullptr
 #endif
 
-#ifndef AUDIO_SOURCE
-#define AUDIO_SOURCE nullptr
+#ifdef OUTPUT_DIR
+#define OUTPUT(name) OUTPUT_DIR name
+#else
+#define OUTPUT(name)
 #endif
+
 
 std::string getPath();
 

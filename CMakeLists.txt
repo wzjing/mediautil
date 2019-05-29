@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.10)
 project(mediautil)
 
 set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+set(MEDIAUTIL_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
+set(MEDIAUTIL_LIB_DIR ${CMAKE_SOURCE_DIR}/lib)
 
 include(FindPkgConfig)
 
@@ -35,7 +38,8 @@ set(HEADERS
         src/log.h
         src/remux.h
         src/metadata.h
-        src/clip.h)
+        src/clip.h
+        src/transcode.h)
 set(SOURCES
         src/video_filter.cpp
         src/audio_filter.cpp
@@ -43,10 +47,9 @@ set(SOURCES
         src/concat.cpp
         src/log.cpp
         src/remux.cpp
-        src/metadata.cpp src/clip.cpp)
-
-set(MEDIAUTIL_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
-set(MEDIAUTIL_LIB_DIR ${CMAKE_SOURCE_DIR}/lib)
+        src/metadata.cpp
+        src/clip.cpp
+        src/transcode.cpp)
 
 add_library(mediautil SHARED ${SOURCES})
 

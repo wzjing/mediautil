@@ -3,8 +3,8 @@ link_libraries(mediautil)
 #set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=memory -fPIE -pie -fno-omit-frame-pointer -g -fno-optimize-sibling-calls -O1")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=memory -fPIE -pie -fno-omit-frame-pointer -g -fno-optimize-sibling-calls -O1")
 
-add_definitions("-DVIDEO_SOURCE=\"${CMAKE_CURRENT_SOURCE_DIR}/assets/video0.mp4\""
-        "-DAUDIO_SOURCE=\"${CMAKE_CURRENT_SOURCE_DIR}/assets/bgm.aac\"")
+add_definitions("-DVIDEO_SOURCE=\"${CMAKE_CURRENT_SOURCE_DIR}/assets/video.mp4\""
+        "-DAUDIO_SOURCE=\"${CMAKE_CURRENT_SOURCE_DIR}/assets/short.aac\"")
 
 set(TEST_BASE common.h common.cpp)
 

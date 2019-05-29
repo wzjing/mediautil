@@ -62,7 +62,7 @@ void logFrame(AVFrame *frame, AVRational *timebase, const char *tag, int isVideo
              frame->height);
     } else {
         LOGD(TAG,
-             "AFrame%-16s->\ttype: audio\tPTS: %8lld|%-8.8s\tDTS: %8lld|%-8.8s\tDuration: %8lld|%-8.8s\tfmt: %s\tchannels: %d\trate: %d\n",
+             "AFrame%-16s->\ttype: audio\tPTS: %8lld|%-8.8s\tDTS: %8lld|%-8.8s\tDuration: %8lld|%-8.8s\tfmt: %s\tchannels: %d\trate: %d\tsize:%d|%d\n",
              tag_str,
              frame->pts,
              av_ts2timestr(frame->pts, timebase),
@@ -72,7 +72,9 @@ void logFrame(AVFrame *frame, AVRational *timebase, const char *tag, int isVideo
              av_ts2timestr(frame->pkt_duration, timebase),
              av_get_sample_fmt_name((AVSampleFormat) frame->format),
              frame->channels,
-             frame->sample_rate);
+             frame->sample_rate,
+             frame->linesize[0],
+             frame->linesize[1] ? frame->linesize[1] : 0);
     }
 }
 

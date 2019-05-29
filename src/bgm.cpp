@@ -198,8 +198,6 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
     logContext(bgmAudioContext, "bgm", 0);
 #endif
 
-    AVPacket *packet = av_packet_alloc();
-    AVPacket *bgmPacket = av_packet_alloc();
     AVPacket *mixPacket = av_packet_alloc();
     AVFrame *inputFrame = av_frame_alloc();
     AVFrame *bgmFrame = av_frame_alloc();
@@ -223,13 +221,15 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
     av_get_channel_layout_string(ch_layout, 128, av_get_channel_layout_nb_channels(outAudioContext->channel_layout),
                                  outAudioContext->channel_layout);
     snprintf(filter_description, sizeof(filter_description),
-             "[in2]volume=volume=%f[volume2];[in1][volume2]amix[out]",
+             "[in1]aresample=44100[a1];[in2]aresample=44100,volume=volume=%f[a2];[a1][a2]amix[out]",
              bgm_volume);
     filter.create(filter_description, &inputConfig, &bgmConfig, &outputConfig);
     filter.dumpGraph();
 
     do {
-        ret = av_read_frame(inFmtContext, packet);
+        AVPacket packet{0};
+        av_init_packet(&packet);
+        ret = av_read_frame(inFmtContext, &packet);
         if (ret == AVERROR_EOF) {
             LOGW(TAG, "\tread fragment end of file\n");
             break;
@@ -238,57 +238,63 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
             break;
         }
 
-        if (packet->flags & AV_PKT_FLAG_DISCARD) continue;
-        if (packet->stream_index == inVideoStream->index) {
-            packet->stream_index = outVideoStream->index;
-            av_packet_rescale_ts(packet, inVideoStream->time_base, outVideoStream->time_base);
-            packet->duration = av_rescale_q(packet->duration, inVideoStream->time_base, outVideoStream->time_base);
-            packet->pos = -1;
+        if (packet.flags & AV_PKT_FLAG_DISCARD) continue;
+        if (packet.stream_index == inVideoStream->index) {
+            packet.stream_index = outVideoStream->index;
+            av_packet_rescale_ts(&packet, inVideoStream->time_base, outVideoStream->time_base);
+            packet.duration = av_rescale_q(packet.duration, inVideoStream->time_base, outVideoStream->time_base);
+            packet.pos = -1;
 #ifdef DEBUG
-            logPacket(packet, &outVideoStream->time_base, "V");
+            logPacket(&packet, &outVideoStream->time_base, "V");
 #endif
-            ret = av_interleaved_write_frame(outFmtContext, packet);
+            ret = av_interleaved_write_frame(outFmtContext, &packet);
             if (ret < 0) {
                 LOGW(TAG, "video frame wirte error: %s\n", av_err2str(ret));
             }
             LOGD(TAG, "\n");
-        } else if (packet->stream_index == inAudioStream->index) {
-            logPacket(packet, &inAudioStream->time_base, "input");
-            packet->stream_index = outAudioStream->index;
-            av_packet_rescale_ts(packet, inAudioStream->time_base, outAudioStream->time_base);
+        } else if (packet.stream_index == inAudioStream->index) {
+            packet.stream_index = outAudioStream->index;
+            av_packet_rescale_ts(&packet, inAudioStream->time_base, outAudioStream->time_base);
 
             int got_bgm = 0;
             // decode bgm packet
             while (true) {
-                ret = av_read_frame(bgmFmtContext, bgmPacket);
+                AVPacket bgmPacket{0};;
+                av_init_packet(&bgmPacket);
+                ret = av_read_frame(bgmFmtContext, &bgmPacket);
                 if (ret == AVERROR_EOF) {
                     LOGD(TAG, "read bgm end of file\n");
-                    break;
+                    av_seek_frame(bgmFmtContext, bgmAudioStream->index, 0, 0);
+                    continue;
                 } else if (ret != 0) {
                     LOGE(TAG, "read bgm error: %s\n", av_err2str(ret));
                     break;
                 }
-                if (bgmPacket->stream_index == bgmAudioStream->index) {
-                    avcodec_send_packet(bgmAudioContext, bgmPacket);
+                if (bgmPacket.stream_index == bgmAudioStream->index) {
+                    avcodec_send_packet(bgmAudioContext, &bgmPacket);
                     ret = avcodec_receive_frame(bgmAudioContext, bgmFrame);
                     if (ret == 0) {
                         got_bgm = 1;
                         break;
-                    }
+                    } else
+                        LOGW(TAG, "skip bgm packet: %s\n", av_err2str(ret));
                 }
             }
-            logPacket(bgmPacket, &bgmAudioStream->time_base, "bgm");
 
             // decode audio frame
-            avcodec_send_packet(inAudioContext, packet);
+            ret = avcodec_send_packet(inAudioContext, &packet);
+            if (ret < 0) {
+                LOGW(TAG, "send input audio to decoder error: %s\n", av_err2str(ret));
+            }
             ret = avcodec_receive_frame(inAudioContext, inputFrame);
             if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-                LOGW(TAG, "audio frame unavailable\n");
+                LOGW(TAG, "get input audio from decoder: %s\n", av_err2str(ret));
                 continue;
             } else if (ret < 0) {
-                LOGE(TAG, "\taudio frame decode error: %s\n", av_err2str(ret));
+                LOGE(TAG, "\tget input audio from decoder error: %s\n", av_err2str(ret));
                 return -1;
             }
+
 
             AVFrame *mixFrame = av_frame_alloc();
 
@@ -297,11 +303,11 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
                 ret = filter.filter(inputFrame, bgmFrame, mixFrame);
                 if (ret < 0) {
                     LOGE(TAG, "\tunable to mix bgm music: %d\n", ret);
+                    return -1;
                 }
                 got_mix = ret == 0;
             }
             if (!got_mix) {
-//                av_frame_unref(mixFrame);
                 mixFrame->format = inputFrame->format;
                 mixFrame->nb_samples = inputFrame->nb_samples;
                 mixFrame->sample_rate = inputFrame->sample_rate;
@@ -318,8 +324,11 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
                     LOGW(TAG, "audio frame copy props error: %s\n", av_err2str(ret));
                 }
             }
-
             mixFrame->pts = inputFrame->pts;
+
+            av_frame_unref(inputFrame);
+            av_frame_unref(bgmFrame);
+
             avcodec_send_frame(outAudioContext, mixFrame);
             encode:
             ret = avcodec_receive_packet(outAudioContext, mixPacket);
@@ -353,9 +362,6 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
 
     av_frame_free(&inputFrame);
     av_frame_free(&bgmFrame);
-    av_packet_free(&packet);
-    av_packet_free(&mixPacket);
-    av_packet_free(&bgmPacket);
 
     avformat_free_context(outFmtContext);
     avformat_free_context(inFmtContext);

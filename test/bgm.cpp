@@ -6,7 +6,7 @@
 int main(int argc, char *argv[]) {
 
     const char *video = ASSET("video.mp4");
-    const char *audio = ASSET("audio.aac");
+    const char *audio = ASSET("bgm.aac");
 
     const char *output = OUTPUT("video_bgm.mp4");
 

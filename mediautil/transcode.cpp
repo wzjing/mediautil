@@ -112,14 +112,12 @@ int transcode_audio(const char *output_filename, const char *input_filename, AVS
                                  av_get_channel_layout_nb_channels(aEncCtx->channel_layout), aEncCtx->channel_layout);
     snprintf(description, sizeof(description),
              "[in]aresample=sample_rate=%d[res];[res]aformat=sample_fmts=%s:sample_rates=%d:channel_layouts=%s[out]",
-             aDecCtx->sample_rate,
+             aEncCtx->sample_rate,
              av_get_sample_fmt_name(aEncCtx->sample_fmt),
              aEncCtx->sample_rate,
              ch_layout);
     filter.create(description, &inConfig, &outConfig);
     filter.dumpGraph();
-
-    FILE* pcm = fopen("/mnt/c/users/android1/desktop/transcode.pcm", "wb");
 
     while (true) {
         AVPacket inPacket{nullptr};
@@ -149,29 +147,16 @@ int transcode_audio(const char *output_filename, const char *input_filename, AVS
                 }
 
                 do {
+                    outAudioFrame->nb_samples = aEncCtx->frame_size;
                     ret = filter.getFrame(outAudioFrame);
                     if (ret == 0) {
-                        AVFrame * temp = av_frame_alloc();
-                        temp->format = outAudioFrame->format;
-                        temp->nb_samples = outAudioFrame->nb_samples;
-                        temp->channel_layout = outAudioFrame->channel_layout;
-                        av_frame_get_buffer(temp, 0);
 
-                        memcpy(temp->data[0], outAudioFrame->data[0], 8192);
+                        outAudioFrame->pts = audio_pts;
+                        audio_pts += outAudioFrame->nb_samples;
 
-//                        av_frame_unref(outAudioFrame);
+                        logFrame(outAudioFrame, &aEncCtx->time_base, "OUT", 0);
 
-                        temp->pts = audio_pts;
-                        audio_pts += temp->nb_samples;
-
-                        logFrame(temp, &aEncCtx->time_base, "OUT", 0);
-                        for (int j = 0; j < temp->nb_samples; ++j) {
-                            for (int ch = 0; ch < temp->channels; ++ch) {
-                                fwrite(temp->data[ch] + j * 4, 4, 1, pcm);
-                            }
-                        }
-                        ret = avcodec_send_frame(aEncCtx, temp);
-//                        av_frame_free(&temp);
+                        ret = avcodec_send_frame(aEncCtx, outAudioFrame);
                         if (ret < 0) {
                             LOGW(TAG, "unable to send frame: %s\n", av_err2str(ret));
                         }
@@ -181,7 +166,7 @@ int transcode_audio(const char *output_filename, const char *input_filename, AVS
                     }
 
                     do {
-                        AVPacket outPacket{0};
+                        AVPacket outPacket{nullptr};
                         av_init_packet(&outPacket);
                         ret = avcodec_receive_packet(aEncCtx, &outPacket);
                         if (ret == 0) {
@@ -217,13 +202,8 @@ int transcode_audio(const char *output_filename, const char *input_filename, AVS
             outAudioFrame->pts = audio_pts;
             audio_pts += outAudioFrame->nb_samples;
             logFrame(outAudioFrame, &aEncCtx->time_base, "FLUSH", 0);
-            for (int j = 0; j < outAudioFrame->nb_samples; ++j) {
-                for (int ch = 0; ch < outAudioFrame->channels; ++ch) {
-                    fwrite(outAudioFrame->data[ch] + j * 4, 4, 1, pcm);
-                }
-            }
         } else {
-            LOGD(TAG, "filter queue is empty: %s\n", av_err2str(ret));
+            LOGD(TAG, "filter queue finished\n");
         }
 
         ret = avcodec_send_frame(aEncCtx, ret == 0 ? outAudioFrame : nullptr);
@@ -231,7 +211,7 @@ int transcode_audio(const char *output_filename, const char *input_filename, AVS
             LOGW(TAG, "unable to send frame: %s\n", av_err2str(ret));
         }
         do {
-            AVPacket outPacket{0};
+            AVPacket outPacket{nullptr};
             ret = avcodec_receive_packet(aEncCtx, &outPacket);
             if (ret == 0) {
                 av_packet_rescale_ts(&outPacket, aEncCtx->time_base, aOutStream->time_base);
@@ -254,8 +234,6 @@ int transcode_audio(const char *output_filename, const char *input_filename, AVS
         } while (true);
 
     } while (!eof);
-
-    fclose(pcm);
 
     filter.destroy();
 

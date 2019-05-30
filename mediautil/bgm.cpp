@@ -191,11 +191,14 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
     }
 
 #ifdef DEBUG
-    logContext(inVideoContext, "input", 1);
-    logMetadata(outVideoStream->metadata, "Video-Stream");
+    logStream(inAudioStream, "input", 0);
+    logContext(inAudioContext, "input", 1);
 
     logStream(bgmAudioStream, "bgm", 0);
     logContext(bgmAudioContext, "bgm", 0);
+
+    logStream(outAudioStream, "out", 0);
+    logContext(outAudioContext, "out", 0);
 #endif
 
     AVPacket *mixPacket = av_packet_alloc();
@@ -206,7 +209,7 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
     AudioConfig inputConfig{inAudioContext->sample_fmt,
                             inAudioContext->sample_rate,
                             inAudioContext->channel_layout,
-                            inAudioContext->time_base};
+                            outAudioContext->time_base};
     AudioConfig bgmConfig{bgmAudioContext->sample_fmt,
                           bgmAudioContext->sample_rate,
                           bgmAudioContext->channel_layout,
@@ -221,13 +224,15 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
     av_get_channel_layout_string(ch_layout, 128, av_get_channel_layout_nb_channels(outAudioContext->channel_layout),
                                  outAudioContext->channel_layout);
     snprintf(filter_description, sizeof(filter_description),
-             "[in1]aresample=44100[a1];[in2]aresample=44100,volume=volume=%f[a2];[a1][a2]amix[out]",
+             "[in1]aresample=%d[a1];[in2]aresample=%d,volume=volume=%f[a2];[a1][a2]amix[out]",
+             outAudioContext->sample_rate,
+             outAudioContext->sample_rate,
              bgm_volume);
     filter.create(filter_description, &inputConfig, &bgmConfig, &outputConfig);
     filter.dumpGraph();
 
     do {
-        AVPacket packet{0};
+        AVPacket packet{nullptr};
         av_init_packet(&packet);
         ret = av_read_frame(inFmtContext, &packet);
         if (ret == AVERROR_EOF) {
@@ -249,7 +254,7 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
 #endif
             ret = av_interleaved_write_frame(outFmtContext, &packet);
             if (ret < 0) {
-                LOGW(TAG, "video frame wirte error: %s\n", av_err2str(ret));
+                LOGW(TAG, "video frame write error: %s\n", av_err2str(ret));
             }
             LOGD(TAG, "\n");
         } else if (packet.stream_index == inAudioStream->index) {
@@ -259,7 +264,7 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
             int got_bgm = 0;
             // decode bgm packet
             while (true) {
-                AVPacket bgmPacket{0};;
+                AVPacket bgmPacket{nullptr};
                 av_init_packet(&bgmPacket);
                 ret = av_read_frame(bgmFmtContext, &bgmPacket);
                 if (ret == AVERROR_EOF) {
@@ -276,8 +281,9 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
                     if (ret == 0) {
                         got_bgm = 1;
                         break;
-                    } else
+                    } else {
                         LOGW(TAG, "skip bgm packet: %s\n", av_err2str(ret));
+                    }
                 }
             }
 
@@ -295,6 +301,9 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
                 return -1;
             }
 
+            logFrame(inputFrame, &inAudioStream->time_base, "input", 0);
+
+            logFrame(bgmFrame, &bgmAudioStream->time_base, "bgm", 0);
 
             AVFrame *mixFrame = av_frame_alloc();
 
@@ -302,29 +311,30 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
             if (got_bgm) {
                 ret = filter.filter(inputFrame, bgmFrame, mixFrame);
                 if (ret < 0) {
-                    LOGE(TAG, "\tunable to mix bgm music: %d\n", ret);
-                    return -1;
+                    LOGW(TAG, "\tunable to mix bgm music: %s\n", av_err2str(ret));
                 }
                 got_mix = ret == 0;
             }
             if (!got_mix) {
-                mixFrame->format = inputFrame->format;
-                mixFrame->nb_samples = inputFrame->nb_samples;
-                mixFrame->sample_rate = inputFrame->sample_rate;
-                mixFrame->channel_layout = inputFrame->channel_layout;
-                mixFrame->channels = inputFrame->channels;
-                av_frame_get_buffer(mixFrame, 0);
-                av_frame_make_writable(mixFrame);
-                ret = av_frame_copy(mixFrame, inputFrame);
-                if (ret != 0) {
-                    LOGW(TAG, "audio frame copy data error: %s\n", av_err2str(ret));
-                }
-                ret = av_frame_copy_props(mixFrame, inputFrame);
-                if (ret != 0) {
-                    LOGW(TAG, "audio frame copy props error: %s\n", av_err2str(ret));
-                }
+//                mixFrame->format = inputFrame->format;
+//                mixFrame->nb_samples = inputFrame->nb_samples;
+//                mixFrame->sample_rate = inputFrame->sample_rate;
+//                mixFrame->channel_layout = inputFrame->channel_layout;
+//                mixFrame->channels = inputFrame->channels;
+//                av_frame_get_buffer(mixFrame, 0);
+//                av_frame_make_writable(mixFrame);
+//                ret = av_frame_copy(mixFrame, inputFrame);
+//                if (ret != 0) {
+//                    LOGW(TAG, "audio frame copy data error: %s\n", av_err2str(ret));
+//                }
+//                ret = av_frame_copy_props(mixFrame, inputFrame);
+//                if (ret != 0) {
+//                    LOGW(TAG, "audio frame copy props error: %s\n", av_err2str(ret));
+//                }
+                continue;
             }
             mixFrame->pts = inputFrame->pts;
+            logFrame(mixFrame, &outAudioContext->time_base, "mix", 0);
 
             av_frame_unref(inputFrame);
             av_frame_unref(bgmFrame);
@@ -348,7 +358,7 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
                 LOGE(TAG, "\tunable to encode audio frame: %s\n", av_err2str(ret));
                 return -1;
             }
-            LOGD(TAG, "\n");
+            LOGD(TAG, "--\n");
         }
     } while (true);
 

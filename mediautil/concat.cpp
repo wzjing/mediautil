@@ -71,7 +71,6 @@ int encode_title(const char *title, AVFormatContext *formatContext,
              srcVideoFrame->height,
              srcVideoFrame->height,
              fontSize, title);
-    LOGD(TAG, "filter: %s\n", filter_description);
     VideoConfig inConfig((AVPixelFormat) srcVideoFrame->format, srcVideoFrame->width, srcVideoFrame->height);
     VideoConfig outConfig((AVPixelFormat) videoFrame->format, videoFrame->width, videoFrame->height);
     ret = filter.create(filter_description, &inConfig, &outConfig);
@@ -82,6 +81,7 @@ int encode_title(const char *title, AVFormatContext *formatContext,
     }
 
     filter.dumpGraph();
+    LOGD(TAG, "debug\n");
 
     ret = filter.filter(srcVideoFrame, srcVideoFrame);
     if (ret < 0) {
@@ -89,11 +89,14 @@ int encode_title(const char *title, AVFormatContext *formatContext,
         goto error;
     }
     filter.destroy();
+    LOGD(TAG, "debug0\n");
 
     sample_size = av_get_bytes_per_sample((AVSampleFormat) srcAudioFrame->format);
     for (int i = 0; i < srcAudioFrame->channels; i++) {
         memset(srcAudioFrame->data[i], '0', srcAudioFrame->nb_samples * sample_size);
     }
+
+    LOGD(TAG, "debug1\n");
 
     while (encode_video || encode_audio) {
         if (!encode_audio || (encode_video && av_compare_ts(video_frame_pts, videoCodecContext->time_base,
@@ -119,10 +122,6 @@ int encode_title(const char *title, AVFormatContext *formatContext,
             while (true) {
                 ret = avcodec_receive_packet(videoCodecContext, packet);
                 if (ret == 0) {
-//                    ret = av_bsf_send_packet(bsfContext, packet);
-//                    if (ret < 0) LOGW(TAG, "unable to send to convert packet to annexb: %s\n", av_err2str(ret));
-//                    ret = av_bsf_receive_packet(bsfContext, packet);
-//                    if (ret != 0) LOGW(TAG, "unable to receive converted annexb packet: %s\n", av_err2str(ret));
                     av_packet_rescale_ts(packet, videoCodecContext->time_base, videoStream->time_base);
                     packet->stream_index = videoStream->index;
                     packet->pts += video_start_pts;
@@ -351,7 +350,6 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
     ret = av_dict_copy(&outVideoStream->metadata, baseVideo->videoStream->metadata, 0);
     if (ret < 0) LOGW(TAG, "failed copy metadata: %s\n", av_err2str(ret));
 
-
     // Copy Audio Stream Configure from base Video
     outAudioContext = avcodec_alloc_context3(outAudioCodec);
     outAudioContext->codec_type = baseVideo->audioCodecContext->codec_type;
@@ -365,10 +363,6 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
     outAudioContext->time_base = (AVRational) {1, outAudioContext->sample_rate};
     outAudioStream->time_base = outAudioContext->time_base;
     av_dict_free(&opt);
-//    opt = nullptr;
-//    if (outVideoContext->codec_id == AV_CODEC_ID_AAC) {
-//        av_dict_set(&opt, "profile", "23", 0);
-//    }
     if (outFmtContext->oformat->flags & AVFMT_GLOBALHEADER)
         outAudioContext->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     ret = avcodec_open2(outAudioContext, outAudioCodec, nullptr);
@@ -407,7 +401,6 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
     uint64_t last_video_dts = 0;
     uint64_t last_audio_pts = 0;
     uint64_t last_audio_dts = 0;
-
 
     for (int i = 0; i < nb_inputs; ++i) {
         AVFormatContext *inFormatContext = videos[i]->formatContext;
@@ -452,18 +445,17 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
                  bsfContext->time_base_out.num, bsfContext->time_base_out.den);
         }
 
-        uint64_t first_video_pts = 0;
-        uint64_t first_video_dts = 0;
-        uint64_t first_audio_pts = 0;
-        uint64_t first_audio_dts = 0;
+        int64_t first_video_pts = 0;
+        int64_t first_video_dts = 0;
+        int64_t first_audio_pts = 0;
+        int64_t first_audio_dts = 0;
         int video_ts_set = 0;
         int audio_ts_set = 0;
 
-        uint64_t next_video_pts = 0;
-        uint64_t next_video_dts = 0;
-        uint64_t next_audio_pts = 0;
-        uint64_t next_audio_dts = 0;
-
+        int64_t next_video_pts = 0;
+        int64_t next_video_dts = 0;
+        int64_t next_audio_pts = 0;
+        int64_t next_audio_dts = 0;
 
         // use first frame to make a title
         int got_video = 0;
@@ -512,7 +504,7 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
         av_seek_frame(inFormatContext, inAudioStream->index, 0, 0);
         av_seek_frame(inFormatContext, inVideoStream->index, 0, 0);
 
-        LOGD(TAG, "\nlast timestamp: A(%lu/%lu) V(%lu/%lu)\n\n", last_audio_pts, last_audio_dts, last_video_pts,
+        LOGD(TAG, "\nlast timestamp: A(%lld/%lld) V(%lld/%lld)\n\n", last_audio_pts, last_audio_dts, last_video_pts,
              last_video_dts);
 
         // copy the video file
@@ -550,14 +542,6 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
                     annexPacket->pts -= first_video_pts;
                     annexPacket->dts -= first_video_dts;
                     av_packet_rescale_ts(annexPacket, bsfContext->time_base_out, outVideoStream->time_base);
-//                    annexPacket->pts = av_rescale_q_rnd(annexPacket->pts, bsfContext->time_base_out,
-//                                                        outVideoStream->time_base,
-//                                                        (AVRounding) (AV_ROUND_INF | AV_ROUND_PASS_MINMAX));
-//                    annexPacket->dts = av_rescale_q_rnd(annexPacket->dts, bsfContext->time_base_out,
-//                                                        outVideoStream->time_base,
-//                                                        (AVRounding) (AV_ROUND_INF | AV_ROUND_PASS_MINMAX));
-//                    annexPacket->duration = av_rescale_q(annexPacket->duration, bsfContext->time_base_out,
-//                                                         outVideoStream->time_base);
                     annexPacket->pos = -1;
                     annexPacket->pts += last_video_pts;
                     annexPacket->dts += last_video_dts;
@@ -580,13 +564,13 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
 
                     packet->pts -= first_video_pts;
                     packet->dts -= first_video_dts;
-//                    av_packet_rescale_ts(packet, inVideoStream->time_base, outVideoStream->time_base);
-                    packet->pts = av_rescale_q_rnd(packet->pts, inVideoStream->time_base, outVideoStream->time_base,
-                                                   (AVRounding) (AV_ROUND_INF | AV_ROUND_PASS_MINMAX));
-                    packet->dts = av_rescale_q_rnd(packet->dts, inVideoStream->time_base, outVideoStream->time_base,
-                                                   (AVRounding) (AV_ROUND_INF | AV_ROUND_PASS_MINMAX));
-                    packet->duration = av_rescale_q(packet->duration, inVideoStream->time_base,
-                                                    outVideoStream->time_base);
+                    av_packet_rescale_ts(packet, inVideoStream->time_base, outVideoStream->time_base);
+//                    packet->pts = av_rescale_q_rnd(packet->pts, inVideoStream->time_base, outVideoStream->time_base,
+//                                                   (AVRounding) (AV_ROUND_INF | AV_ROUND_PASS_MINMAX));
+//                    packet->dts = av_rescale_q_rnd(packet->dts, inVideoStream->time_base, outVideoStream->time_base,
+//                                                   (AVRounding) (AV_ROUND_INF | AV_ROUND_PASS_MINMAX));
+//                    packet->duration = av_rescale_q(packet->duration, inVideoStream->time_base,
+//                                                    outVideoStream->time_base);
                     packet->pos = -1;
                     packet->pts += last_video_pts;
                     packet->dts += last_video_dts;

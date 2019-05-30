@@ -6,7 +6,7 @@
 
 int main(int argc, char *argv[]) {
 
-    const char *video = ASSET("video.mp4");
+    const char *video = ASSET("video.ts");
 
     const char *ts_filename = OUTPUT("concat.ts");
     const char *output_filename = OUTPUT("concat.mp4");

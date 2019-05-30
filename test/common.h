@@ -23,9 +23,11 @@
 #define OUTPUT(name)
 #endif
 
-
-std::string getPath();
-
-int exec(const char *format, ...) __attribute__((__format__ (__printf__, 1, 2)));
+#define exe(format, ...) { \
+    char *command = new char[128]; \
+    snprintf(command, 128, format, ## __VA_ARGS__); \
+    system(command); \
+    delete [] command; \
+}
 
 #endif //MEDIAUTIL_COMMON_H

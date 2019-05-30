@@ -12,10 +12,12 @@ int main(int argc, char *argv[]) {
 
     int ret = add_bgm(output, video, audio, 1.6);
 
+
+#ifdef PLAYER
     if (ret == 0) {
-        return exec("ffplay -i %s", output);
-    } else {
-        return -1;
+        exe("ffplay -i %s", output)
     }
+#endif
+    return ret;
 }
 

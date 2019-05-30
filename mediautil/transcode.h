@@ -10,6 +10,7 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
 #include <libavfilter/avfilter.h>
+#include <libswresample/swresample.h>
 }
 
 struct Config {
@@ -28,6 +29,7 @@ struct Config {
   int audio_bitrate = 0;
 };
 
-int transcode(const char *output_filename, const char *input_filename, Config *new_config);
+int transcode_audio(const char *output_filename, const char *input_filename, AVSampleFormat sample_fmt,
+                    int sample_rate, uint64_t channel_layout, uint64_t bitrate);
 
 #endif //MEDIAUTIL_TRANSCODE_H

@@ -2,6 +2,7 @@
 #include "clip.h"
 
 #include "log.h"
+#include "foundation.h"
 #include "video_filter.h"
 
 extern "C" {
@@ -11,11 +12,6 @@ extern "C" {
 }
 
 #define TAG "clip"
-
-#define checkret(ret, msg) if(ret < 0) {\
-                            LOGE(TAG, "%s: %s", msg, av_err2str(ret));\
-                            return -1;\
-                        }
 
 int clip(const char *output_filename, const char *input_filename, float from, float to) {
 
@@ -32,7 +28,7 @@ int clip(const char *output_filename, const char *input_filename, float from, fl
     int ret = 0;
 
     ret = avformat_open_input(&inFmtCtx, input_filename, nullptr, nullptr);
-    checkret(ret, "open input error")
+    checkret(ret, "open input error %s", input_filename)
     ret = avformat_find_stream_info(inFmtCtx, nullptr);
     checkret(ret, "find input info error")
 

@@ -13,7 +13,7 @@ void logPacket(AVPacket *packet, AVRational *timebase, const char *tag) {
     char tag_str[24];
     snprintf(tag_str, 24, "[\033[33m%s\033[0m]", tag);
     LOGD(TAG,
-         "Packet%-16.16s->\tstream: %d\tPTS: %8lld|%-8.8s\tDTS: %8lld|%-8.8s\tDuration: %8lld|%-8.8s\tflags:\033[34m%-8s\033[0m\tsize:%8d\tside_data: %s(%d)\n",
+         "Packet%-16.16s->\tstream: %d\tPTS: %12lld|%-8.8s\tDTS: %12lld|%-8.8s\tDuration: %8lld|%-8.8s\tflags:\033[34m%-8s\033[0m\tsize:%8d\tside_data: %s(%d)\n",
          tag_str,
          packet->stream_index,
          packet->pts,
@@ -48,7 +48,7 @@ void logFrame(AVFrame *frame, AVRational *timebase, const char *tag, int isVideo
                 break;
         }
         LOGD(TAG,
-             "VFrame%-16.16s->\ttype: video\tPTS: %8lld|%-8.8s\tDTS: %8lld|%-8.8s\tDuration: %8lld|%-8.8s\tfmt:%s\tpict: %-16s\tsize: %dx%d\n",
+             "VFrame%-16.16s->\ttype: video\tPTS: %12lld|%-8.8s\tDTS: %12lld|%-8.8s\tDuration: %8lld|%-8.8s\tfmt:%s\tpict: %-16s\tsize: %dx%d\n",
              tag_str,
              frame->pts,
              av_ts2timestr(frame->pts, timebase),
@@ -62,7 +62,7 @@ void logFrame(AVFrame *frame, AVRational *timebase, const char *tag, int isVideo
              frame->height);
     } else {
         LOGD(TAG,
-             "AFrame%-16s->\ttype: audio\tPTS: %8lld|%-8.8s\tDTS: %8lld|%-8.8s\tDuration: %8lld|%-8.8s\tfmt: %s\tchannels: %d\trate: %d\tsize:%d|%d\n",
+             "AFrame%-16s->\ttype: audio\tPTS: %12lld|%-8.8s\tDTS: %12lld|%-8.8s\tDuration: %8lld|%-8.8s\tfmt: %s\tchannels: %d\trate: %d\tsize:%d|%d\n",
              tag_str,
              frame->pts,
              av_ts2timestr(frame->pts, timebase),

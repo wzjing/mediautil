@@ -4,24 +4,19 @@
 
 #include "transcode.h"
 #include "log.h"
+#include "foundation.h"
+#include "audio_filter.h"
 
 #define TAG "transcode"
 
-#define checkret(ret, msg) if(ret < 0){LOGD(TAG, "%s: %s\n", msg, av_err2str(ret));return -1;}
-#define nonnull(ptr, msg) if(!ptr){LOGD(TAG, "null pointer: %s\n", msg);return -1;}
-
-int transcode(const char *output_filename, const char *input_filename, Config *new_config) {
+int transcode_audio(const char *output_filename, const char *input_filename, AVSampleFormat sample_fmt,
+                    int sample_rate, uint64_t channel_layout, uint64_t bitrate) {
     AVFormatContext *inFmtCtx = nullptr;
     AVFormatContext *outFmtCtx = nullptr;
 
-    AVCodecContext *vDecCtx = nullptr;
     AVCodecContext *aDecCtx = nullptr;
-    AVCodecContext *vEncCtx = nullptr;
     AVCodecContext *aEncCtx = nullptr;
 
-    AVStream *vInStream = nullptr;
-    AVStream *vOutStream = nullptr;
-    AVStream *aInStream = nullptr;
     AVStream *aOutStream = nullptr;
 
     int ret;
@@ -48,107 +43,234 @@ int transcode(const char *output_filename, const char *input_filename, Config *n
             ret = avcodec_open2(aDecCtx, decoder, nullptr);
             checkret(ret, "unable to open audio decode context")
 
-            AVCodec *encoder = avcodec_find_encoder(new_config->audio_codec_id);
-            nonnull(decoder, "unable to find audio encoder")
-            AVStream *outStream = avformat_new_stream(outFmtCtx, encoder);
-            nonnull(outStream, "unable to create output audio stream")
-            outStream->id = outFmtCtx->nb_streams - 1;
-            aEncCtx = avcodec_alloc_context3(decoder);
-            nonnull(outStream, "unable to create output audio stream")
+            AVCodec *encoder = avcodec_find_encoder(outFmtCtx->oformat->audio_codec);
+            nonnull(encoder, "unable to find audio encoder")
+            aOutStream = avformat_new_stream(outFmtCtx, encoder);
+            nonnull(aOutStream, "unable to create output audio stream")
+            aOutStream->id = outFmtCtx->nb_streams - 1;
+            aEncCtx = avcodec_alloc_context3(encoder);
+            nonnull(aOutStream, "unable to create output audio stream")
             aEncCtx->codec_id = encoder->id;
-            aEncCtx->sample_fmt = new_config->sample_fmt ? new_config->sample_fmt : aDecCtx->sample_fmt;
-            aEncCtx->sample_rate = new_config->sample_rate ? new_config->sample_rate : aDecCtx->sample_rate;
-            aEncCtx->channel_layout = new_config->channel_layout;
-            aEncCtx->bit_rate = new_config->audio_bitrate ? new_config->audio_bitrate : aDecCtx->bit_rate;
+            aEncCtx->sample_fmt = sample_fmt ? sample_fmt : aDecCtx->sample_fmt;
+            aEncCtx->sample_rate = sample_rate ? sample_rate : aDecCtx->sample_rate;
+            aEncCtx->channel_layout = channel_layout;
+            aEncCtx->channels = av_get_channel_layout_nb_channels(channel_layout);
+            aEncCtx->bit_rate = bitrate ? bitrate : aDecCtx->bit_rate;
             aEncCtx->time_base = (AVRational) {1, aEncCtx->sample_rate};
-            outStream->time_base = aEncCtx->time_base;
+            aOutStream->time_base = aEncCtx->time_base;
             if (outFmtCtx->oformat->flags & AVFMT_GLOBALHEADER)
                 aEncCtx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
             ret = avcodec_open2(aEncCtx, encoder, nullptr);
             checkret(ret, "unable to create output audio encode context")
-            ret = avcodec_parameters_from_context(outStream->codecpar, aEncCtx);
+            ret = avcodec_parameters_from_context(aOutStream->codecpar, aEncCtx);
             checkret(ret, "unable to copy parameter from audio context to stream")
-            av_dict_copy(&outStream->metadata, inStream->metadata, 0);
+            av_dict_copy(&aOutStream->metadata, inStream->metadata, 0);
 
             logStream(inStream, "IN", 0);
-            logStream(outStream, "OUT", 0);
-
-        } else if (inStream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
-            AVCodec *decoder = avcodec_find_decoder(inStream->codecpar->codec_id);
-            nonnull(decoder, "unable to find video decoder")
-            vDecCtx = avcodec_alloc_context3(decoder);
-            nonnull(aDecCtx, "unable to alloc video decode context")
-            ret = avcodec_parameters_to_context(vDecCtx, inStream->codecpar);
-            checkret(ret, "unable to set video decode context")
-            ret = avcodec_open2(vDecCtx, decoder, nullptr);
-            checkret(ret, "unable to open video decode context")
-
-            AVCodec *encoder = avcodec_find_encoder(new_config->video_codec_id);
-            AVStream *outStream = avformat_new_stream(outFmtCtx, encoder);
-            nonnull(outStream, "unable to create output video stream")
-            outStream->id = outFmtCtx->nb_streams - 1;
-            vEncCtx = avcodec_alloc_context3(decoder);
-            nonnull(outStream, "unable to create output audio stream")
-            vEncCtx->codec_id = encoder->id;
-            vEncCtx->pix_fmt = new_config->pix_fmt ? new_config->pix_fmt : vEncCtx->pix_fmt;
-            vEncCtx->width = new_config->width ? new_config->width : vEncCtx->width;
-            vEncCtx->height = new_config->height ? new_config->height : vEncCtx->height;
-            vEncCtx->bit_rate = new_config->audio_bitrate ? new_config->audio_bitrate : vEncCtx->bit_rate;
-            vEncCtx->framerate = vDecCtx->framerate;
-            vEncCtx->gop_size = vEncCtx->framerate.num;
-            vEncCtx->qmax = 32;
-            vEncCtx->qmin = 2;
-            aEncCtx->time_base = (AVRational) {aEncCtx->framerate.den, aEncCtx->framerate.num};
-            outStream->time_base = aEncCtx->time_base;
-            AVDictionary *opt = nullptr;
-            if (vEncCtx->codec_id == AV_CODEC_ID_H264) {
-                av_dict_set(&opt, "preset", "fast", 0);
-                av_dict_set(&opt, "tune", "zerolatency", 0);
-            }
-            if (outFmtCtx->oformat->flags & AVFMT_GLOBALHEADER)
-                vEncCtx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-            ret = avcodec_open2(vEncCtx, encoder, &opt);
-            av_dict_free(&opt);
-            checkret(ret, "unable to create output audio encode context")
-            ret = avcodec_parameters_from_context(outStream->codecpar, vEncCtx);
-            checkret(ret, "unable to copy parameter from audio context to stream")
-            av_dict_copy(&outStream->metadata, inStream->metadata, 0);
-
-            logStream(inStream, "IN", 1);
-            logStream(outStream, "OUT", 1);
+            logStream(aOutStream, "OUT", 0);
+            break;
         }
     }
 
     logContext(aDecCtx, "IN", 0);
     logContext(aEncCtx, "OUT", 0);
 
-    logContext(vDecCtx, "IN", 1);
-    logContext(vEncCtx, "OUT", 1);
+    if (!(outFmtCtx->oformat->flags & AVFMT_NOFILE)) {
+        LOGD(TAG, "Opening file: %s\n", output_filename);
+        ret = avio_open(&outFmtCtx->pb, output_filename, AVIO_FLAG_WRITE);
+        if (ret < 0) {
+            LOGE(TAG, "could not open %s (%s)\n", output_filename, av_err2str(ret));
+            return -1;
+        }
+    }
 
-    AVFrame *inFrame = av_frame_alloc();
-    AVFrame *outFrame = av_frame_alloc();
+    ret = avformat_write_header(outFmtCtx, nullptr);
+    if (ret < 0) {
+        LOGE(TAG, "unable to open output file header: %s\n", av_err2str(ret));
+        return -1;
+    }
 
-    int encode_video = 1;
-    int encode_audio = 1;
-    int64_t video_pts = 0;
+    AVFrame *inAudioFrame = av_frame_alloc();
+    AVFrame *outAudioFrame = av_frame_alloc();
+
+    outAudioFrame->format = aEncCtx->sample_fmt;
+    outAudioFrame->sample_rate = aEncCtx->sample_rate;
+    outAudioFrame->channel_layout = aEncCtx->channel_layout;
+    outAudioFrame->nb_samples = aEncCtx->frame_size;
+    ret = av_frame_get_buffer(outAudioFrame, 0);
+    checkret(ret, "unable to get out frame buffer")
+
     int64_t audio_pts = 0;
 
-    int got_packet = 0;
+    // filter
+    AudioFilter filter;
+    char description[512];
+    AudioConfig inConfig(aDecCtx->sample_fmt, aDecCtx->sample_rate, aDecCtx->channel_layout, aDecCtx->time_base);
+    AudioConfig outConfig(aEncCtx->sample_fmt, aEncCtx->sample_rate, aEncCtx->channel_layout, aEncCtx->time_base);
+    char ch_layout[64];
+    av_get_channel_layout_string(ch_layout, sizeof(ch_layout),
+                                 av_get_channel_layout_nb_channels(aEncCtx->channel_layout), aEncCtx->channel_layout);
+    snprintf(description, sizeof(description),
+             "[in]aresample=sample_rate=%d[res];[res]aformat=sample_fmts=%s:sample_rates=%d:channel_layouts=%s[out]",
+             aDecCtx->sample_rate,
+             av_get_sample_fmt_name(aEncCtx->sample_fmt),
+             aEncCtx->sample_rate,
+             ch_layout);
+    filter.create(description, &inConfig, &outConfig);
+    filter.dumpGraph();
+
+    FILE* pcm = fopen("/mnt/c/users/android1/desktop/transcode.pcm", "wb");
 
     while (true) {
         AVPacket inPacket{nullptr};
         av_init_packet(&inPacket);
         ret = av_read_frame(inFmtCtx, &inPacket);
-        if (ret == 0) {
-            if (inPacket.stream_index = aOutStream->index) {
-                ret = avcodec_send_packet(aDecCtx, &inPacket);
-                if (ret == 0) {}
+        if (ret == AVERROR_EOF) {
+            break;
+        } else if (ret < 0) {
+            LOGE(TAG, "error while read input packet: %s\n", av_err2str(ret));
+            return -1;
+        }
 
-            } else if (inPacket.stream_index = vOutStream->index) {
+        if (inPacket.stream_index == aOutStream->index) {
+            logPacket(&inPacket, &inFmtCtx->streams[inPacket.stream_index]->time_base, "IN");
+            ret = avcodec_send_packet(aDecCtx, &inPacket);
+            if (ret != 0) {
+                LOGW(TAG, "unable to send packet: %s\n", av_err2str(ret));
+            }
+            ret = avcodec_receive_frame(aDecCtx, inAudioFrame);
 
+            if (ret == 0) {
+                logFrame(inAudioFrame, &inFmtCtx->streams[inPacket.stream_index]->time_base, "IN", 0);
+                ret = filter.addFrame(inAudioFrame);
+                av_frame_unref(inAudioFrame);
+                if (ret < 0) {
+                    LOGW(TAG, "unable to add filter audio frame: %s\n", av_err2str(ret));
+                }
+
+                do {
+                    ret = filter.getFrame(outAudioFrame);
+                    if (ret == 0) {
+                        AVFrame * temp = av_frame_alloc();
+                        temp->format = outAudioFrame->format;
+                        temp->nb_samples = outAudioFrame->nb_samples;
+                        temp->channel_layout = outAudioFrame->channel_layout;
+                        av_frame_get_buffer(temp, 0);
+
+                        memcpy(temp->data[0], outAudioFrame->data[0], 8192);
+
+//                        av_frame_unref(outAudioFrame);
+
+                        temp->pts = audio_pts;
+                        audio_pts += temp->nb_samples;
+
+                        logFrame(temp, &aEncCtx->time_base, "OUT", 0);
+                        for (int j = 0; j < temp->nb_samples; ++j) {
+                            for (int ch = 0; ch < temp->channels; ++ch) {
+                                fwrite(temp->data[ch] + j * 4, 4, 1, pcm);
+                            }
+                        }
+                        ret = avcodec_send_frame(aEncCtx, temp);
+//                        av_frame_free(&temp);
+                        if (ret < 0) {
+                            LOGW(TAG, "unable to send frame: %s\n", av_err2str(ret));
+                        }
+                    } else {
+                        LOGW(TAG, "unable to get filter audio frame: %s\n", av_err2str(ret));
+                        break;
+                    }
+
+                    do {
+                        AVPacket outPacket{0};
+                        av_init_packet(&outPacket);
+                        ret = avcodec_receive_packet(aEncCtx, &outPacket);
+                        if (ret == 0) {
+                            av_packet_rescale_ts(&outPacket, aEncCtx->time_base, aOutStream->time_base);
+                            outPacket.stream_index = aOutStream->index;
+                            logPacket(&outPacket, &aOutStream->time_base, "OUT");
+                            ret = av_interleaved_write_frame(outFmtCtx, &outPacket);
+                            if (ret < 0) {
+                                LOGE(TAG, "unable to write packet: %s\n", av_err2str(ret));
+                                break;
+                            }
+                        } else {
+                            LOGW(TAG, "unable to receive packet: %s\n", av_err2str(ret));
+                            break;
+                        }
+                    } while (true);
+
+                } while (true);
+
+                LOGD(TAG, "\n");
+
+            } else {
+                LOGW(TAG, "unable to receive frame: %s\n", av_err2str(ret));
             }
         }
     }
+
+    // flush
+    int eof = 0;
+    do {
+        ret = filter.getFrame(outAudioFrame);
+        if (ret == 0) {
+            outAudioFrame->pts = audio_pts;
+            audio_pts += outAudioFrame->nb_samples;
+            logFrame(outAudioFrame, &aEncCtx->time_base, "FLUSH", 0);
+            for (int j = 0; j < outAudioFrame->nb_samples; ++j) {
+                for (int ch = 0; ch < outAudioFrame->channels; ++ch) {
+                    fwrite(outAudioFrame->data[ch] + j * 4, 4, 1, pcm);
+                }
+            }
+        } else {
+            LOGD(TAG, "filter queue is empty: %s\n", av_err2str(ret));
+        }
+
+        ret = avcodec_send_frame(aEncCtx, ret == 0 ? outAudioFrame : nullptr);
+        if (ret < 0) {
+            LOGW(TAG, "unable to send frame: %s\n", av_err2str(ret));
+        }
+        do {
+            AVPacket outPacket{0};
+            ret = avcodec_receive_packet(aEncCtx, &outPacket);
+            if (ret == 0) {
+                av_packet_rescale_ts(&outPacket, aEncCtx->time_base, aOutStream->time_base);
+                outPacket.stream_index = aOutStream->index;
+                logPacket(&outPacket, &aOutStream->time_base, "FLUSH");
+                ret = av_interleaved_write_frame(outFmtCtx, &outPacket);
+                if (ret < 0) {
+                    LOGE(TAG, "unable to write packet: %s\n", av_err2str(ret));
+                    eof = 1;
+                    break;
+                }
+            } else if (ret == AVERROR_EOF) {
+                LOGW(TAG, "reach end\n");
+                eof = 1;
+                break;
+            } else {
+                LOGE(TAG, "unable to receive packet: %s\n", av_err2str(ret));
+                break;
+            }
+        } while (true);
+
+    } while (!eof);
+
+    fclose(pcm);
+
+    filter.destroy();
+
+    av_write_trailer(outFmtCtx);
+
+    avformat_close_input(&inFmtCtx);
+
+    av_frame_free(&inAudioFrame);
+    av_frame_free(&outAudioFrame);
+
+    avcodec_free_context(&aDecCtx);
+    avcodec_free_context(&aEncCtx);
+
+    avformat_free_context(inFmtCtx);
+    avformat_free_context(outFmtCtx);
 
     return 0;
 }

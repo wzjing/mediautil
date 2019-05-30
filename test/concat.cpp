@@ -28,10 +28,12 @@ int main(int argc, char *argv[]) {
     }
 #endif
 
-
+#ifdef PLAYER
     if (ret == 0) {
-        return exec("ffplay -i %s", output_filename);
-    } else {
-        return -1;
+        exe("ffplay -i %s", output_filename)
+        return 0;
     }
+#endif
+
+    return ret;
 }

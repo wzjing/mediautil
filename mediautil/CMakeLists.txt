@@ -35,7 +35,8 @@ set(HEADERS
         remux.h
         metadata.h
         clip.h
-        transcode.h)
+        transcode.h
+        foundation.h)
 set(SOURCES
         video_filter.cpp
         audio_filter.cpp

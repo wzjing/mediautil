@@ -30,4 +30,21 @@
     delete [] command; \
 }
 
+#ifdef PLAYER
+#ifdef WSL
+#define PLAY(path) { \
+                        char winPath[128]; \
+                        snprintf(winPath, sizeof(winPath), "%c:%s", path[5], path + 6); \
+                        char command[128]; \
+                        snprintf(command, sizeof(command), PLAYER " -i %s", winPath); \
+                        FILE *out = popen(command, "r"); \
+                        pclose(out); \
+                    }
+#else
+#define PLAY(path) system(PLAYER " -i "#path);
+#endif
+#else
+#define PLAY(path)
+#endif
+
 #endif //MEDIAUTIL_COMMON_H

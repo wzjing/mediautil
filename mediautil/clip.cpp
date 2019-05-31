@@ -71,6 +71,7 @@ int clip(const char *output_filename, const char *input_filename, float from, fl
                 gifCodecCtx = avcodec_alloc_context3(codec);
                 gifCodecCtx->codec_id = AV_CODEC_ID_GIF;
                 gifCodecCtx->time_base = {1, 30};
+                gifCodecCtx->bit_rate = 100000;
                 gifCodecCtx->pix_fmt = AV_PIX_FMT_RGB8;
                 gifCodecCtx->width = videoCodecCtx->width;
                 gifCodecCtx->height = videoCodecCtx->height;

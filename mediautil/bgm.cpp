@@ -5,11 +5,13 @@
 #include "bgm.h"
 #include "log.h"
 #include "audio_filter.h"
+#include "foundation.h"
 
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/timestamp.h>
 #include <libavutil/avutil.h>
+#include <libswresample/swresample.h>
 }
 
 #define TAG "bgm"
@@ -96,6 +98,7 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
     AVCodecContext *inVideoContext = nullptr;
     AVCodecContext *outAudioContext = nullptr;
     AVCodecContext *bgmAudioContext = nullptr;
+    AudioFilter filter;
 
     AVStream *inAudioStream = nullptr;
     AVStream *inVideoStream = nullptr;
@@ -175,6 +178,34 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
     av_dict_copy(&outVideoStream->metadata, inVideoStream->metadata, 0);
     av_dict_copy(&outAudioStream->metadata, inAudioStream->metadata, 0);
 
+
+    AudioConfig inputConfig{inAudioContext->sample_fmt,
+                            inAudioContext->sample_rate,
+                            inAudioContext->channel_layout,
+                            inAudioContext->time_base};
+    AudioConfig bgmConfig{bgmAudioContext->sample_fmt,
+                          bgmAudioContext->sample_rate,
+                          bgmAudioContext->channel_layout,
+                          bgmAudioContext->time_base};
+    AudioConfig outputConfig{outAudioContext->sample_fmt,
+                             outAudioContext->sample_rate,
+                             outAudioContext->channel_layout,
+                             outAudioContext->time_base};
+
+    // Filter
+    char filter_description[256];
+    char ch_layout[128];
+    av_get_channel_layout_string(ch_layout, 128, av_get_channel_layout_nb_channels(outAudioContext->channel_layout),
+                                 outAudioContext->channel_layout);
+    snprintf(filter_description, sizeof(filter_description),
+             "[in1]aresample=%d[a1];[in2]aresample=%d,volume=volume=%f[a2];[a1][a2]amix[out]",
+             outAudioContext->sample_rate,
+             outAudioContext->sample_rate,
+             bgm_volume);
+    filter.create(filter_description, &inputConfig, &bgmConfig, &outputConfig);
+    filter.dumpGraph();
+
+
     if (!(outFmtContext->oformat->flags & AVFMT_NOFILE)) {
         LOGD(TAG, "Opening file: %s\n", output_filename);
         ret = avio_open(&outFmtContext->pb, output_filename, AVIO_FLAG_WRITE);
@@ -201,35 +232,10 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
     logContext(outAudioContext, "out", 0);
 #endif
 
-    AVPacket *mixPacket = av_packet_alloc();
     AVFrame *inputFrame = av_frame_alloc();
     AVFrame *bgmFrame = av_frame_alloc();
-
-    AudioFilter filter;
-    AudioConfig inputConfig{inAudioContext->sample_fmt,
-                            inAudioContext->sample_rate,
-                            inAudioContext->channel_layout,
-                            outAudioContext->time_base};
-    AudioConfig bgmConfig{bgmAudioContext->sample_fmt,
-                          bgmAudioContext->sample_rate,
-                          bgmAudioContext->channel_layout,
-                          bgmAudioContext->time_base};
-    AudioConfig outputConfig{outAudioContext->sample_fmt,
-                             outAudioContext->sample_rate,
-                             outAudioContext->channel_layout,
-                             outAudioContext->time_base};
-
-    char filter_description[256];
-    char ch_layout[128];
-    av_get_channel_layout_string(ch_layout, 128, av_get_channel_layout_nb_channels(outAudioContext->channel_layout),
-                                 outAudioContext->channel_layout);
-    snprintf(filter_description, sizeof(filter_description),
-             "[in1]aresample=%d[a1];[in2]aresample=%d,volume=volume=%f[a2];[a1][a2]amix[out]",
-             outAudioContext->sample_rate,
-             outAudioContext->sample_rate,
-             bgm_volume);
-    filter.create(filter_description, &inputConfig, &bgmConfig, &outputConfig);
-    filter.dumpGraph();
+//    AVFrame *swrFrame = av_frame_alloc();
+    AVFrame *mixFrame = av_frame_alloc();
 
     do {
         AVPacket packet{nullptr};
@@ -261,8 +267,27 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
             packet.stream_index = outAudioStream->index;
             av_packet_rescale_ts(&packet, inAudioStream->time_base, outAudioStream->time_base);
 
-            int got_bgm = 0;
+            // decode input frame
+            ret = avcodec_send_packet(inAudioContext, &packet);
+            if (ret < 0) {
+                LOGW(TAG, "send input audio to decoder error: %s\n", av_err2str(ret));
+            }
+            ret = avcodec_receive_frame(inAudioContext, inputFrame);
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                LOGW(TAG, "get input audio from decoder: %s\n", av_err2str(ret));
+                continue;
+            } else if (ret < 0) {
+                LOGE(TAG, "\tget input audio from decoder error: %s\n", av_err2str(ret));
+                return -1;
+            }
+
+            logFrame(inputFrame, &inAudioStream->time_base, "input", 0);
+
+            filter.addInput1(inputFrame);
+
             // decode bgm packet
+            decode:
+            int got_bgm = 0;
             while (true) {
                 AVPacket bgmPacket{nullptr};
                 av_init_packet(&bgmPacket);
@@ -287,51 +312,21 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
                 }
             }
 
-            // decode audio frame
-            ret = avcodec_send_packet(inAudioContext, &packet);
-            if (ret < 0) {
-                LOGW(TAG, "send input audio to decoder error: %s\n", av_err2str(ret));
-            }
-            ret = avcodec_receive_frame(inAudioContext, inputFrame);
-            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-                LOGW(TAG, "get input audio from decoder: %s\n", av_err2str(ret));
-                continue;
-            } else if (ret < 0) {
-                LOGE(TAG, "\tget input audio from decoder error: %s\n", av_err2str(ret));
-                return -1;
-            }
-
-            logFrame(inputFrame, &inAudioStream->time_base, "input", 0);
-
             logFrame(bgmFrame, &bgmAudioStream->time_base, "bgm", 0);
 
-            AVFrame *mixFrame = av_frame_alloc();
+            filter.addInput2(bgmFrame);
 
             int got_mix = 0;
             if (got_bgm) {
-                ret = filter.filter(inputFrame, bgmFrame, mixFrame);
+                ret = filter.getFrame(mixFrame);
+//                av_frame_unref(swrFrame);
                 if (ret < 0) {
                     LOGW(TAG, "\tunable to mix bgm music: %s\n", av_err2str(ret));
                 }
                 got_mix = ret == 0;
             }
             if (!got_mix) {
-//                mixFrame->format = inputFrame->format;
-//                mixFrame->nb_samples = inputFrame->nb_samples;
-//                mixFrame->sample_rate = inputFrame->sample_rate;
-//                mixFrame->channel_layout = inputFrame->channel_layout;
-//                mixFrame->channels = inputFrame->channels;
-//                av_frame_get_buffer(mixFrame, 0);
-//                av_frame_make_writable(mixFrame);
-//                ret = av_frame_copy(mixFrame, inputFrame);
-//                if (ret != 0) {
-//                    LOGW(TAG, "audio frame copy data error: %s\n", av_err2str(ret));
-//                }
-//                ret = av_frame_copy_props(mixFrame, inputFrame);
-//                if (ret != 0) {
-//                    LOGW(TAG, "audio frame copy props error: %s\n", av_err2str(ret));
-//                }
-                continue;
+                goto decode;
             }
             mixFrame->pts = inputFrame->pts;
             logFrame(mixFrame, &outAudioContext->time_base, "mix", 0);
@@ -341,13 +336,14 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
 
             avcodec_send_frame(outAudioContext, mixFrame);
             encode:
-            ret = avcodec_receive_packet(outAudioContext, mixPacket);
+            AVPacket mixPacket{nullptr};
+            ret = avcodec_receive_packet(outAudioContext, &mixPacket);
             if (ret == 0) {
-                mixPacket->stream_index = outAudioStream->index;
+                mixPacket.stream_index = outAudioStream->index;
 #ifdef DEBUG
-                logPacket(mixPacket, &outAudioStream->time_base, "A");
+                logPacket(&mixPacket, &outAudioStream->time_base, "A");
 #endif
-                ret = av_interleaved_write_frame(outFmtContext, mixPacket);
+                ret = av_interleaved_write_frame(outFmtContext, &mixPacket);
                 if (ret < 0) {
                     LOGW(TAG, "audio frame wirte error: %s\n", av_err2str(ret));
                 }
@@ -372,6 +368,7 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
 
     av_frame_free(&inputFrame);
     av_frame_free(&bgmFrame);
+    av_frame_free(&mixFrame);
 
     avformat_free_context(outFmtContext);
     avformat_free_context(inFmtContext);

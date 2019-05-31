@@ -4,7 +4,7 @@ set(MEDIAUTIL_LIB_DIR ${CMAKE_SOURCE_DIR}/lib)
 
 include(FindPkgConfig)
 
-add_definitions(-DDEBUG -D__STDC_FORMAT_MACROS -D__STDC_CONSTANT_MACROS)
+add_definitions(-D__STDC_FORMAT_MACROS -D__STDC_CONSTANT_MACROS)
 
 if (${PKG_CONFIG_FOUND})
     message(STATUS "found pkg-config ${PKG_CONFIG_VERSION_STRING} in ${PKG_CONFIG_EXECUTABLE}")

@@ -216,31 +216,15 @@ int AudioFilter::filter(AVFrame *input1, AVFrame *input2, AVFrame *result) {
     return av_buffersink_get_samples(buffersink_ctx, result, result->nb_samples);
 }
 
-int AudioFilter::addFrame(AVFrame *input1, AVFrame *input2) {
-    int ret = av_buffersrc_add_frame_flags(buffersrc1_ctx, input1, AV_BUFFERSRC_FLAG_KEEP_REF);
-    if (ret < 0) {
-        LOGE(TAG, "add audio input1 error: %s\n", av_err2str(ret));
-        return ret;
-    }
-
-    ret = av_buffersrc_add_frame_flags(buffersrc2_ctx, input2, AV_BUFFERSRC_FLAG_KEEP_REF);
-    if (ret < 0) {
-        LOGE(TAG, "add audio input1 error: %s\n", av_err2str(ret));
-        return ret;
-    }
-    return 0;
-}
-
-int AudioFilter::addFrame(AVFrame *input) {
-    int ret = av_buffersrc_add_frame_flags(buffersrc1_ctx, input, AV_BUFFERSRC_FLAG_KEEP_REF);
-    if (ret < 0) {
-        LOGE(TAG, "add audio input error: %s\n", av_err2str(ret));
-    }
-    return ret;
-
-}
-
 int AudioFilter::getFrame(AVFrame *result) {
     int ret = av_buffersink_get_samples(buffersink_ctx, result, result->nb_samples);
     return ret;
+}
+
+int AudioFilter::addInput1(AVFrame *input) {
+    return av_buffersrc_add_frame_flags(buffersrc1_ctx, input, AV_BUFFERSRC_FLAG_KEEP_REF);
+}
+
+int AudioFilter::addInput2(AVFrame *input) {
+    return av_buffersrc_add_frame_flags(buffersrc2_ctx, input, AV_BUFFERSRC_FLAG_KEEP_REF);
 }

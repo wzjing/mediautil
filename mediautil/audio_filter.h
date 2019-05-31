@@ -46,9 +46,9 @@ public:
 
     int filter(AVFrame *input1, AVFrame* input2, AVFrame* result);
 
-    int addFrame(AVFrame *input1, AVFrame* input2);
+    int addInput1(AVFrame * input);
 
-    int addFrame(AVFrame *input);
+    int addInput2(AVFrame* input);
 
     int getFrame(AVFrame* result);
 

@@ -11,12 +11,9 @@ int main(int argc, char *argv[]) {
 
     int ret = transcode_audio(output, input, AV_SAMPLE_FMT_FLTP, 44100, AV_CH_LAYOUT_STEREO, 135000);
 
-#ifdef PLAYER
     if (ret == 0) {
-        exe("ffplay -i %s", output);
+        PLAY(output)
     }
-#endif
-
     return ret;
 
 }

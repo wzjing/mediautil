@@ -24,12 +24,44 @@ struct Video {
 static int titleDuration = 2;
 static int fontSize = 40;
 
+int filter_frame(AVFrame *frame, const char *title) {
+    VideoFilter filter;
+    int ret = 0;
+    char filter_description[512];
+    snprintf(filter_description, 512,
+             "gblur=sigma=20:steps=6[blur];"
+             "color=black:%dx%d[canvas];"
+             "[canvas]setsar=1,drawtext=fontsize=%d:fontcolor=white:text='%s':x=w/2-text_w/2:y=h/2-text_h/2,split[text][alpha];"
+             "[text][alpha]alphamerge,rotate=3*PI/2[ov];"
+             "[blur][ov]overlay=w/2:0",
+             frame->height,
+             frame->height,
+             fontSize, title);
+    VideoConfig inConfig((AVPixelFormat) frame->format, frame->width, frame->height);
+    VideoConfig outConfig((AVPixelFormat) frame->format, frame->width, frame->height);
+    ret = filter.create(filter_description, &inConfig, &outConfig);
+
+    if (ret < 0) {
+        LOGE(TAG, "unable to create filter");
+        return ret;
+    }
+
+    filter.dumpGraph();
+
+    ret = filter.filter(frame, frame);
+    if (ret < 0) {
+        LOGE(TAG, "unable to filter frame\n");
+    }
+    filter.destroy();
+    return ret;
+}
+
 int encode_title(const char *title, AVFormatContext *formatContext,
                  AVFrame *srcAudioFrame, AVFrame *srcVideoFrame,
                  AVCodecContext *audioCodecContext, AVCodecContext *videoCodecContext,
                  AVStream *audioStream, AVStream *videoStream,
-                 uint64_t &audio_start_pts, uint64_t &audio_start_dts,
-                 uint64_t &video_start_pts, uint64_t &video_start_dts) {
+                 int64_t &audio_start_pts, int64_t &audio_start_dts,
+                 int64_t &video_start_pts, int64_t &video_start_dts) {
 
     int encode_video = 1;
     int encode_audio = 1;
@@ -50,53 +82,26 @@ int encode_title(const char *title, AVFormatContext *formatContext,
     int64_t video_frame_pts = 0;
     int64_t audio_frame_pts = 0;
 
-    uint64_t next_video_pts = 0;
-    uint64_t next_video_dts = 0;
-    uint64_t next_audio_pts = 0;
-    uint64_t next_audio_dts = 0;
+    int64_t next_video_pts = 0;
+    int64_t next_video_dts = 0;
+    int64_t next_audio_pts = 0;
+    int64_t next_audio_dts = 0;
 
     int sample_size = 0;
 
     int first_video_set = 0;
     int first_audio_set = 0;
 
-    VideoFilter filter;
-    char filter_description[512];
-    snprintf(filter_description, 512,
-             "gblur=sigma=20:steps=6[blur];"
-             "color=black:%dx%d[canvas];"
-             "[canvas]setsar=1,drawtext=fontsize=%d:fontcolor=white:text='%s':x=w/2-text_w/2:y=h/2-text_h/2,split[text][alpha];"
-             "[text][alpha]alphamerge,rotate=3*PI/2[ov];"
-             "[blur][ov]overlay=w/2:0",
-             srcVideoFrame->height,
-             srcVideoFrame->height,
-             fontSize, title);
-    VideoConfig inConfig((AVPixelFormat) srcVideoFrame->format, srcVideoFrame->width, srcVideoFrame->height);
-    VideoConfig outConfig((AVPixelFormat) videoFrame->format, videoFrame->width, videoFrame->height);
-    ret = filter.create(filter_description, &inConfig, &outConfig);
-
+    ret = filter_frame(srcVideoFrame, title);
     if (ret < 0) {
-        LOGE(TAG, "unable to create filter");
-        goto error;
+        LOGE(TAG, "unable to filter video frame: %s\n", av_err2str(ret));
+        return -1;
     }
-
-    filter.dumpGraph();
-    LOGD(TAG, "debug\n");
-
-    ret = filter.filter(srcVideoFrame, srcVideoFrame);
-    if (ret < 0) {
-        LOGE(TAG, "unable to filter frame\n");
-        goto error;
-    }
-    filter.destroy();
-    LOGD(TAG, "debug0\n");
 
     sample_size = av_get_bytes_per_sample((AVSampleFormat) srcAudioFrame->format);
     for (int i = 0; i < srcAudioFrame->channels; i++) {
         memset(srcAudioFrame->data[i], '0', srcAudioFrame->nb_samples * sample_size);
     }
-
-    LOGD(TAG, "debug1\n");
 
     while (encode_video || encode_audio) {
         if (!encode_audio || (encode_video && av_compare_ts(video_frame_pts, videoCodecContext->time_base,
@@ -128,9 +133,7 @@ int encode_title(const char *title, AVFormatContext *formatContext,
                     packet->dts += video_start_dts;
                     next_video_pts = packet->pts + srcVideoFrame->pkt_duration;
                     next_video_dts = packet->dts + srcVideoFrame->pkt_duration;
-#ifdef DEBUG
                     logPacket(packet, &videoStream->time_base, "V");
-#endif
                     ret = av_interleaved_write_frame(formatContext, packet);
                     if (ret < 0) {
                         LOGE(TAG, "write video frame error: %s\n", av_err2str(ret));
@@ -180,9 +183,7 @@ int encode_title(const char *title, AVFormatContext *formatContext,
                     packet->dts += audio_start_dts;
                     next_audio_pts = packet->pts + srcAudioFrame->pkt_duration;
                     next_audio_dts = packet->dts + srcAudioFrame->pkt_duration;
-#ifdef DEBUG
 //                    logPacket(packet, &audioStream->time_base, "A");
-#endif
                     ret = av_interleaved_write_frame(formatContext, packet);
                     if (ret < 0) {
                         LOGE(TAG, "write audio frame error: %s\n", av_err2str(ret));
@@ -397,10 +398,10 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
     AVFrame *videoFrame = av_frame_alloc();
     AVFrame *audioFrame = av_frame_alloc();
 
-    uint64_t last_video_pts = 0;
-    uint64_t last_video_dts = 0;
-    uint64_t last_audio_pts = 0;
-    uint64_t last_audio_dts = 0;
+    int64_t last_video_pts = 0;
+    int64_t last_video_dts = 0;
+    int64_t last_audio_pts = 0;
+    int64_t last_audio_dts = 0;
 
     for (int i = 0; i < nb_inputs; ++i) {
         AVFormatContext *inFormatContext = videos[i]->formatContext;
@@ -548,9 +549,8 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
                     next_video_pts = annexPacket->pts + annexPacket->duration;
                     next_video_dts = annexPacket->dts + annexPacket->duration;
 
-#ifdef DEBUG
                     logPacket(annexPacket, &outVideoStream->time_base, "Annex");
-#endif
+
                     av_interleaved_write_frame(outFmtContext, annexPacket);
                     av_packet_free(&annexPacket);
                 } else {
@@ -598,9 +598,7 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
                 packet->dts += last_audio_dts;
                 next_audio_pts = packet->pts + packet->duration;
                 next_audio_dts = packet->dts + packet->duration;
-#ifdef DEBUG
 //                logPacket(packet, &outAudioStream->time_base, "A");
-#endif
                 av_interleaved_write_frame(outFmtContext, packet);
             }
         } while (true);
@@ -650,8 +648,8 @@ int write_packet(AVFormatContext *formatContext, AVStream *stream, AVRational ti
 }
 
 int concat_encode(const char *output_filename, const char **input_filenames, const char **titles, int nb_inputs,
-                  int font_size, int title_duration) {
-
+                  int font_size, int title_duration, ProgressCallback cb) {
+    cb(0);
     fontSize = font_size;
     titleDuration = title_duration;
 
@@ -845,6 +843,7 @@ int concat_encode(const char *output_filename, const char **input_filenames, con
 
 
     for (int i = 0; i < nb_inputs; ++i) {
+        cb(10+90/nb_inputs*i);
         AVFormatContext *inFormatContext = videos[i]->formatContext;
 
         AVStream *inVideoStream = videos[i]->videoStream;
@@ -902,35 +901,7 @@ int concat_encode(const char *output_filename, const char **input_filenames, con
         outAudioFrame->format = outAudioContext->sample_fmt;
         av_frame_get_buffer(outAudioFrame, 0);
 
-        VideoFilter filter;
-        char filter_description[512];
-        snprintf(filter_description, 512,
-                 "gblur=sigma=20:steps=6[blur];"
-                 "color=black:%dx%d[canvas];"
-                 "[canvas]setsar=1,drawtext=fontsize=%d:fontcolor=white:text='%s':x=w/2-text_w/2:y=h/2-text_h/2,split[text][alpha];"
-                 "[text][alpha]alphamerge,rotate=3*PI/2[ov];"
-                 "[blur][ov]overlay=w/2:0",
-                 inVideoFrame->height,
-                 inVideoFrame->height,
-                 fontSize, titles[i]);
-        LOGD(TAG, "filter: %s\n", filter_description);
-        VideoConfig inConfig((AVPixelFormat) inVideoFrame->format, inVideoFrame->width, inVideoFrame->height);
-        VideoConfig outConfig((AVPixelFormat) outVideoFrame->format, outVideoFrame->width, outVideoFrame->height);
-        ret = filter.create(filter_description, &inConfig, &outConfig);
-
-        if (ret < 0) {
-            LOGE(TAG, "unable to create filter");
-            return -1;
-        }
-
-        filter.dumpGraph();
-
-        ret = filter.filter(inVideoFrame, inVideoFrame);
-        if (ret < 0) {
-            LOGE(TAG, "unable to filter frame\n");
-            return -1;
-        }
-        filter.destroy();
+        filter_frame(inVideoFrame, titles[i]);
 
         int sample_size = av_get_bytes_per_sample((AVSampleFormat) inAudioFrame->format);
         for (int j = 0; j < inAudioFrame->channels; j++) {
@@ -993,6 +964,8 @@ int concat_encode(const char *output_filename, const char **input_filenames, con
                 } while (ret == 0);
             }
         }
+
+        cb(10+90/nb_inputs*i+45/nb_inputs);
 
 
         av_seek_frame(inFormatContext, inAudioStream->index, 0, 0);
@@ -1170,6 +1143,6 @@ int concat_encode(const char *output_filename, const char **input_filenames, con
         free(videos[i]);
     }
     free(videos);
-
+    cb(100);
     return 0;
 }

@@ -11,10 +11,9 @@ int main(int argc, char *argv[]) {
 
     int ret = clip(output, video, 2, 6);
 
-#ifdef PLAYER
     if (ret == 0) {
-        exe("%s %s",  PLAYER,output)
+        PLAY(output)
     }
-#endif
+
     return ret;
 }

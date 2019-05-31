@@ -140,7 +140,7 @@ int transcode_audio(const char *output_filename, const char *input_filename, AVS
 
             if (ret == 0) {
                 logFrame(inAudioFrame, &inFmtCtx->streams[inPacket.stream_index]->time_base, "IN", 0);
-                ret = filter.addFrame(inAudioFrame);
+                ret = filter.addInput1(inAudioFrame);
                 av_frame_unref(inAudioFrame);
                 if (ret < 0) {
                     LOGW(TAG, "unable to add filter audio frame: %s\n", av_err2str(ret));

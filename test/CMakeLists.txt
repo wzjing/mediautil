@@ -5,6 +5,11 @@ set(TEST_BASE common.h)
 add_definitions("-DASSET_DIR=\"${CMAKE_SOURCE_DIR}/assets/\""
         "-DOUTPUT_DIR=\"${CMAKE_SOURCE_DIR}/output/\"")
 
+
+if (${CMAKE_SYSTEM} MATCHES "Linux.+Microsoft")
+    add_definitions(-DWSL)
+endif ()
+
 find_program(player ffplay)
 
 if (player)

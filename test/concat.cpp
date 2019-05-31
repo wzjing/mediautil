@@ -4,36 +4,37 @@
 #include "mediautil/remux.h"
 #include "common.h"
 
+#define ENCODE
+
 int main(int argc, char *argv[]) {
 
-    const char *video = ASSET("video.ts");
+    const char *input = ASSET("video.mp4");
 
     const char *ts_filename = OUTPUT("concat.ts");
-    const char *output_filename = OUTPUT("concat.mp4");
+    const char *output = OUTPUT("concat.mp4");
 
-    const char *inputs[]{video, video};
+    const char *inputs[]{input, input};
     const char *titles[]{"Video 1: this is the first video\nstart", "Video 2"};
 
     int ret = 0;
 
 #ifdef ENCODE
-    ret = concat_encode(output_filename, inputs, titles, 2, 40, 2);
+    ret = concat_encode(output, inputs, titles, 2, 40, 2, [](int progress) -> void {
+        printf("progress: %d\n", progress);
+    });
 #else
     Mp4Meta *meta = nullptr;
     getMeta(&meta, video);
     ret = concat_no_encode(ts_filename, inputs, titles, 2, 40, 2);
     if (ret == 0) {
-        ret = remux(output_filename, ts_filename, meta);
+        ret = remux(output, ts_filename, meta);
         remove(ts_filename);
     }
 #endif
 
-#ifdef PLAYER
     if (ret == 0) {
-        exe("ffplay -i %s", output_filename)
-        return 0;
+        PLAY(output)
     }
-#endif
 
     return ret;
 }

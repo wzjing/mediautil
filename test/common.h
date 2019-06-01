@@ -36,12 +36,17 @@
                         char winPath[128]; \
                         snprintf(winPath, sizeof(winPath), "%c:%s", path[5], path + 6); \
                         char command[128]; \
-                        snprintf(command, sizeof(command), PLAYER " -i %s", winPath); \
+                        snprintf(command, sizeof(command), PLAYER " %s", winPath); \
                         FILE *out = popen(command, "r"); \
                         pclose(out); \
                     }
 #else
-#define PLAY(path) system(PLAYER " -i "#path);
+#define PLAY(path) { \
+                        char command[128]; \
+                        snprintf(command, sizeof(command), PLAYER " %s", path); \
+                        FILE *out = popen(command, "r"); \
+                        pclose(out); \
+}
 #endif
 #else
 #define PLAY(path)

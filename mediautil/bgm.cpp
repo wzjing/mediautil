@@ -221,7 +221,6 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
         return -1;
     }
 
-#ifdef DEBUG
     logStream(inAudioStream, "input", 0);
     logContext(inAudioContext, "input", 1);
 
@@ -230,7 +229,6 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
 
     logStream(outAudioStream, "out", 0);
     logContext(outAudioContext, "out", 0);
-#endif
 
     AVFrame *inputFrame = av_frame_alloc();
     AVFrame *bgmFrame = av_frame_alloc();
@@ -255,9 +253,7 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
             av_packet_rescale_ts(&packet, inVideoStream->time_base, outVideoStream->time_base);
             packet.duration = av_rescale_q(packet.duration, inVideoStream->time_base, outVideoStream->time_base);
             packet.pos = -1;
-#ifdef DEBUG
             logPacket(&packet, &outVideoStream->time_base, "V");
-#endif
             ret = av_interleaved_write_frame(outFmtContext, &packet);
             if (ret < 0) {
                 LOGW(TAG, "video frame write error: %s\n", av_err2str(ret));
@@ -340,9 +336,7 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
             ret = avcodec_receive_packet(outAudioContext, &mixPacket);
             if (ret == 0) {
                 mixPacket.stream_index = outAudioStream->index;
-#ifdef DEBUG
                 logPacket(&mixPacket, &outAudioStream->time_base, "A");
-#endif
                 ret = av_interleaved_write_frame(outFmtContext, &mixPacket);
                 if (ret < 0) {
                     LOGW(TAG, "audio frame wirte error: %s\n", av_err2str(ret));

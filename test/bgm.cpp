@@ -5,16 +5,15 @@
 
 int main(int argc, char *argv[]) {
 
-    const char *video = ASSET("video.mp4");
+    const char *video = ASSET("movie.mp4");
     const char *audio = ASSET("bgm.mp3");
 
     const char *output = OUTPUT("video_bgm.mp4");
 
-    int ret = add_bgm(output, video, audio, 1.6);
+    int ret = add_bgm(output, video, audio, 0.8);
 
     if (ret == 0) {
         PLAY(output)
     }
     return ret;
 }
-

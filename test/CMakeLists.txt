@@ -14,7 +14,7 @@ find_program(player ffplay)
 
 if (player)
     message(STATUS "found player: ${player}")
-    add_definitions("-DPLAYER=\"${player} -i\"")
+    add_definitions("-DPLAYER=\"${player} -i \"")
 else ()
     message(STATUS "no player found")
 endif ()

@@ -10,7 +10,9 @@ int main(int argc, char *argv[]) {
 
     const char *output = OUTPUT("video_bgm.mp4");
 
-    int ret = add_bgm(output, video, audio, 0.8);
+    int ret = add_bgm(output, video, audio, 0.8, [](int progress) -> void {
+        printf("progress: %d\n", progress);
+    });
 
     if (ret == 0) {
         PLAY(output)

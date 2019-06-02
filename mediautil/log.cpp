@@ -114,6 +114,8 @@ void logStream(AVStream *stream, const char *tag, int isVideo) {
              stream->avg_frame_rate.den,
              stream->first_dts == AV_NOPTS_VALUE ? -1 : stream->first_dts);
     }
+    
+    logMetadata(stream->metadata, tag);
 }
 
 void logContext(AVCodecContext *context, const char *tag, int isVideo) {

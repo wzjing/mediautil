@@ -2,7 +2,6 @@
 #include "clip.h"
 
 #include "log.h"
-#include "foundation.h"
 #include "video_filter.h"
 
 extern "C" {
@@ -13,8 +12,8 @@ extern "C" {
 
 #define TAG "clip"
 
-int clip(const char *output_filename, const char *input_filename, float from, float to) {
-
+int clip(const char *output_filename, const char *input_filename, float from, float to, ProgressCallback callback) {
+    if (callback) callback(0);
     if (from < 0 || from >= to) {
         LOGE(TAG, "invalid time: %f -> %f\n", from, to);
         return -1;
@@ -99,7 +98,6 @@ int clip(const char *output_filename, const char *input_filename, float from, fl
     int64_t first_pts = av_rescale_q_rnd((int64_t) from, (AVRational) {1, 1},
                                          inFmtCtx->streams[video_idx]->time_base,
                                          AV_ROUND_DOWN);
-    LOGD(TAG, "seek(%d): %ld\n", video_idx, first_pts);
     av_seek_frame(inFmtCtx, video_idx, first_pts, AVSEEK_FLAG_BACKWARD);
 
     VideoFilter *filter = nullptr;
@@ -119,7 +117,7 @@ int clip(const char *output_filename, const char *input_filename, float from, fl
         av_init_packet(&packet);
         ret = av_read_frame(inFmtCtx, &packet);
         if (ret < 0) {
-            LOGW(TAG, "read: %s\n", av_err2str(ret));
+            LOGD(TAG, "read: %s\n", av_err2str(ret));
             break;
         }
         if (av_compare_ts(packet.pts, inFmtCtx->streams[packet.stream_index]->time_base,
@@ -127,8 +125,20 @@ int clip(const char *output_filename, const char *input_filename, float from, fl
             break;
         }
 
-        if (packet.stream_index == video_idx)
+        if (packet.stream_index == video_idx) {
             logPacket(&packet, &inFmtCtx->streams[packet.stream_index]->time_base, "pkt");
+        }
+
+        if (callback && packet.stream_index == video_idx) {
+            int start = av_rescale_q((int64_t) (from * 10), (AVRational) {1, 10},
+                                     inFmtCtx->streams[packet.stream_index]->time_base);
+            int end = av_rescale_q((int64_t) (to * 10), (AVRational) {1, 10},
+                                   inFmtCtx->streams[packet.stream_index]->time_base);
+            int progress = 100 * (packet.pts - start) / (end - start);
+            if (progress > 100) progress = 99;
+            if (progress < 0) progress = 0;
+            callback(progress);
+        }
 
         if (isGif) {
             if (packet.stream_index == video_idx) {
@@ -136,12 +146,12 @@ int clip(const char *output_filename, const char *input_filename, float from, fl
                 AVFrame *frame = av_frame_alloc();
                 ret = avcodec_send_packet(videoCodecCtx, &packet);
                 if (ret < 0) {
-                    LOGW(TAG, "decode send: %s\n", av_err2str(ret));
+                    LOGD(TAG, "decode send: %s\n", av_err2str(ret));
                     continue;
                 }
                 ret = avcodec_receive_frame(videoCodecCtx, frame);
                 if (ret < 0) {
-                    LOGW(TAG, "decode receive: %s\n", av_err2str(ret));
+                    LOGD(TAG, "decode receive: %s\n", av_err2str(ret));
                     continue;
                 }
 
@@ -150,7 +160,7 @@ int clip(const char *output_filename, const char *input_filename, float from, fl
 
                 ret = avcodec_send_frame(gifCodecCtx, frame);
                 if (ret < 0) {
-                    LOGW(TAG, "encode send: %s\n", av_err2str(ret));
+                    LOGD(TAG, "encode send: %s\n", av_err2str(ret));
                     continue;
                 }
                 av_frame_free(&frame);
@@ -159,7 +169,7 @@ int clip(const char *output_filename, const char *input_filename, float from, fl
                 av_init_packet(&gifPkt);
                 ret = avcodec_receive_packet(gifCodecCtx, &gifPkt);
                 if (ret < 0) {
-                    LOGW(TAG, "encode receive: %s\n", av_err2str(ret));
+                    LOGD(TAG, "encode receive: %s\n", av_err2str(ret));
                     continue;
                 }
 
@@ -192,5 +202,6 @@ int clip(const char *output_filename, const char *input_filename, float from, fl
     avformat_close_input(&inFmtCtx);
     avformat_free_context(inFmtCtx);
     avformat_free_context(outFmtCtx);
+    if (callback) callback(100);
     return 0;
 }

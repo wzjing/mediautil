@@ -10,12 +10,12 @@ extern "C" {
 }
 
 struct Video {
-  AVFormatContext *formatContext = nullptr;
-  AVStream *videoStream = nullptr;
-  AVStream *audioStream = nullptr;
-  AVCodecContext *audioCodecContext = nullptr;
-  AVCodecContext *videoCodecContext = nullptr;
-  int isTsVideo = 0;
+    AVFormatContext *formatContext = nullptr;
+    AVStream *videoStream = nullptr;
+    AVStream *audioStream = nullptr;
+    AVCodecContext *audioCodecContext = nullptr;
+    AVCodecContext *videoCodecContext = nullptr;
+    int isTsVideo = 0;
 
 };
 
@@ -76,7 +76,7 @@ int encode_title(const char *title, AVFormatContext *formatContext,
     videoFrame->format = videoCodecContext->pix_fmt;
     ret = av_frame_get_buffer(videoFrame, 0);
     if (ret < 0) {
-        LOGW(TAG, "warning: unable to get video buffers");
+        LOGD(TAG, "warning: unable to get video buffers");
     }
 
     int64_t video_frame_pts = 0;
@@ -111,9 +111,13 @@ int encode_title(const char *title, AVFormatContext *formatContext,
                 encode_video = 0;
             } else {
                 ret = av_frame_copy(videoFrame, srcVideoFrame);
-                if (ret < 0) LOGW(TAG, "\tget copy video frame failed\n");
+                if (ret < 0) {
+                    LOGD(TAG, "\tget copy video frame failed\n");
+                }
                 ret = av_frame_copy_props(videoFrame, srcAudioFrame);
-                if (ret < 0) LOGW(TAG, "\tget copy video frame props failed\n");
+                if (ret < 0) {
+                    LOGD(TAG, "\tget copy video frame props failed\n");
+                }
                 if (!first_video_set) {
                     videoFrame->pict_type = AV_PICTURE_TYPE_I;
                     first_video_set = 1;
@@ -142,7 +146,7 @@ int encode_title(const char *title, AVFormatContext *formatContext,
                 } else if (ret == AVERROR(EAGAIN)) {
                     break;
                 } else if (ret == AVERROR_EOF) {
-                    LOGW(TAG, "Stream Video finished\n");
+                    LOGD(TAG, "Stream Video finished\n");
                     encode_video = 0;
                     break;
                 } else {
@@ -160,11 +164,17 @@ int encode_title(const char *title, AVFormatContext *formatContext,
                 audioFrame->sample_rate = audioCodecContext->sample_rate;
                 audioFrame->channel_layout = audioCodecContext->channel_layout;
                 ret = av_frame_get_buffer(audioFrame, 0);
-                if (ret < 0) LOGW(TAG, "\tget audio buffer failed\n");
+                if (ret < 0) {
+                    LOGD(TAG, "\tget audio buffer failed\n");
+                }
                 ret = av_frame_copy(audioFrame, srcAudioFrame);
-                if (ret < 0) LOGW(TAG, "\tcopy audio failed\n");
+                if (ret < 0) {
+                    LOGD(TAG, "\tcopy audio failed\n");
+                }
                 av_frame_copy_props(audioFrame, srcAudioFrame);
-                if (ret < 0) LOGW(TAG, "\tcopy audio prop failed\n");
+                if (ret < 0) {
+                    LOGD(TAG, "\tcopy audio prop failed\n");
+                }
                 audioFrame->pict_type = AV_PICTURE_TYPE_NONE;
                 audioFrame->pts = audio_frame_pts;
                 audio_frame_pts += srcAudioFrame->nb_samples;
@@ -221,8 +231,9 @@ int encode_title(const char *title, AVFormatContext *formatContext,
 }
 
 int concat_no_encode(const char *output_filename, const char **input_filenames, const char **titles, int nb_inputs,
-                     int font_size, int title_duration) {
+                     int font_size, int title_duration, ProgressCallback callback) {
 
+    if (callback != nullptr) callback(0);
     fontSize = font_size;
     titleDuration = title_duration;
 
@@ -280,12 +291,6 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
 
         }
         videos[i]->isTsVideo = strcmp(videos[i]->formatContext->iformat->name, "mpegts") == 0;
-
-        LOGD(TAG, "\n%s:\t%s/%s -> %s\n\n",
-             videos[i]->isTsVideo ? "TS" : "--",
-             videos[i]->videoStream ? "Video" : "--",
-             videos[i]->audioStream ? "Audio" : "--",
-             input_filenames[i]);
     }
 
     // create output AVFormatContext
@@ -349,7 +354,9 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
         return -1;
     }
     ret = av_dict_copy(&outVideoStream->metadata, baseVideo->videoStream->metadata, 0);
-    if (ret < 0) LOGW(TAG, "failed copy metadata: %s\n", av_err2str(ret));
+    if (ret < 0) {
+        LOGD(TAG, "failed copy metadata: %s\n", av_err2str(ret));
+    }
 
     // Copy Audio Stream Configure from base Video
     outAudioContext = avcodec_alloc_context3(outAudioCodec);
@@ -404,8 +411,8 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
     int64_t last_audio_dts = 0;
 
     for (int i = 0; i < nb_inputs; ++i) {
+        if (callback != nullptr) callback(10 + 90 / nb_inputs * i);
         AVFormatContext *inFormatContext = videos[i]->formatContext;
-
         AVStream *inVideoStream = videos[i]->videoStream;
         AVStream *inAudioStream = videos[i]->audioStream;
         AVCodecContext *audioContext = videos[i]->audioCodecContext;
@@ -441,9 +448,6 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
                 LOGE(TAG, "unable to copy out parameters to bsf context");
                 return -1;
             }
-            LOGD(TAG, "bsf timebase: {%d, %d} -> {%d, %d}\n", inVideoStream->time_base.num,
-                 inVideoStream->time_base.den,
-                 bsfContext->time_base_out.num, bsfContext->time_base_out.den);
         }
 
         int64_t first_video_pts = 0;
@@ -480,7 +484,7 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
         } while (!got_video || !got_audio);
 
         if (!got_video) {
-            LOGW(TAG, "unable to get input video frame\n");
+            LOGD(TAG, "unable to get input video frame\n");
             videoFrame->width = outVideoContext->width;
             videoFrame->height = outVideoContext->height;
             videoFrame->format = outVideoContext->pix_fmt;
@@ -488,7 +492,7 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
         }
 
         if (!got_audio) {
-            LOGW(TAG, "unable to get input audio frame\n");
+            LOGD(TAG, "unable to get input audio frame\n");
             audioFrame->nb_samples = 1024;
             audioFrame->sample_rate = outAudioContext->sample_rate;
         }
@@ -505,34 +509,36 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
         av_seek_frame(inFormatContext, inAudioStream->index, 0, 0);
         av_seek_frame(inFormatContext, inVideoStream->index, 0, 0);
 
-        LOGD(TAG, "\nlast timestamp: A(%lld/%lld) V(%lld/%lld)\n\n", last_audio_pts, last_audio_dts, last_video_pts,
-             last_video_dts);
+        if (callback != nullptr) callback(10 + 90 / nb_inputs * i + 45 / nb_inputs);
 
         // copy the video file
         do {
             ret = av_read_frame(inFormatContext, packet);
             if (ret == AVERROR_EOF) {
-                LOGW(TAG, "\tread fragment end of file\n");
+                LOGD(TAG, "\tread fragment end of file\n");
                 break;
             } else if (ret < 0) {
                 LOGE(TAG, "read fragment error: %s\n", av_err2str(ret));
-                break;
+                return -1;
             }
 
             if (packet->dts < 0) continue;
             if (packet->stream_index == inVideoStream->index) {
                 if (packet->flags & AV_PKT_FLAG_DISCARD) {
-                    LOGW(TAG, "\nPacket is discard\n");
+                    LOGD(TAG, "\nPacket is discard\n");
                     continue;
                 }
 
                 if (!videos[i]->isTsVideo) {
                     AVPacket *annexPacket = av_packet_alloc();
                     ret = av_bsf_send_packet(bsfContext, packet);
-                    if (ret < 0) LOGW(TAG, "unable to convert packet to annexb: %s\n", av_err2str(ret));
+                    if (ret < 0) {
+                        LOGD(TAG, "unable to convert packet to annexb: %s\n", av_err2str(ret));
+                    }
                     ret = av_bsf_receive_packet(bsfContext, annexPacket);
-                    if (ret != 0) LOGW(TAG, "unable to receive converted annexb packet: %s\n", av_err2str(ret));
-//                    LOGI(TAG, "\t mp4 to annexb\n");
+                    if (ret != 0) {
+                        LOGD(TAG, "unable to receive converted annexb packet: %s\n", av_err2str(ret));
+                    }
                     if (!video_ts_set) {
                         first_video_pts = annexPacket->pts;
                         first_video_dts = annexPacket->dts;
@@ -565,12 +571,6 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
                     packet->pts -= first_video_pts;
                     packet->dts -= first_video_dts;
                     av_packet_rescale_ts(packet, inVideoStream->time_base, outVideoStream->time_base);
-//                    packet->pts = av_rescale_q_rnd(packet->pts, inVideoStream->time_base, outVideoStream->time_base,
-//                                                   (AVRounding) (AV_ROUND_INF | AV_ROUND_PASS_MINMAX));
-//                    packet->dts = av_rescale_q_rnd(packet->dts, inVideoStream->time_base, outVideoStream->time_base,
-//                                                   (AVRounding) (AV_ROUND_INF | AV_ROUND_PASS_MINMAX));
-//                    packet->duration = av_rescale_q(packet->duration, inVideoStream->time_base,
-//                                                    outVideoStream->time_base);
                     packet->pos = -1;
                     packet->pts += last_video_pts;
                     packet->dts += last_video_dts;
@@ -598,7 +598,7 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
                 packet->dts += last_audio_dts;
                 next_audio_pts = packet->pts + packet->duration;
                 next_audio_dts = packet->dts + packet->duration;
-//                logPacket(packet, &outAudioStream->time_base, "A");
+                logPacket(packet, &outAudioStream->time_base, "A");
                 av_interleaved_write_frame(outFmtContext, packet);
             }
         } while (true);
@@ -634,6 +634,7 @@ int concat_no_encode(const char *output_filename, const char **input_filenames, 
     }
     free(videos);
 
+    if (callback != nullptr) callback(100);
     return 0;
 }
 
@@ -648,8 +649,8 @@ int write_packet(AVFormatContext *formatContext, AVStream *stream, AVRational ti
 }
 
 int concat_encode(const char *output_filename, const char **input_filenames, const char **titles, int nb_inputs,
-                  int font_size, int title_duration, ProgressCallback cb) {
-    cb(0);
+                  int font_size, int title_duration, ProgressCallback callback) {
+    if (callback != nullptr) callback(0);
     fontSize = font_size;
     titleDuration = title_duration;
 
@@ -709,12 +710,6 @@ int concat_encode(const char *output_filename, const char **input_filenames, con
 
         }
         videos[i]->isTsVideo = strcmp(videos[i]->formatContext->iformat->name, "mpegts") == 0;
-
-        LOGD(TAG, "\n%s:\t%s/%s -> %s\n\n",
-             videos[i]->isTsVideo ? "TS" : "--",
-             videos[i]->videoStream ? "Video" : "--",
-             videos[i]->audioStream ? "Audio" : "--",
-             input_filenames[i]);
     }
 
     // create output AVFormatContext
@@ -778,7 +773,9 @@ int concat_encode(const char *output_filename, const char **input_filenames, con
         return -1;
     }
     ret = av_dict_copy(&outVideoStream->metadata, baseVideo->videoStream->metadata, 0);
-    if (ret < 0) LOGW(TAG, "failed copy metadata: %s\n", av_err2str(ret));
+    if (ret < 0) {
+        LOGD(TAG, "failed copy metadata: %s\n", av_err2str(ret));
+    }
 
 
     // Copy Audio Stream Configure from base Video
@@ -843,7 +840,7 @@ int concat_encode(const char *output_filename, const char **input_filenames, con
 
 
     for (int i = 0; i < nb_inputs; ++i) {
-        cb(10+90/nb_inputs*i);
+        if (callback != nullptr) callback(10 + 90 / nb_inputs * i);
         AVFormatContext *inFormatContext = videos[i]->formatContext;
 
         AVStream *inVideoStream = videos[i]->videoStream;
@@ -874,7 +871,7 @@ int concat_encode(const char *output_filename, const char **input_filenames, con
         } while (!got_video || !got_audio);
 
         if (!got_video) {
-            LOGW(TAG, "unable to get input video frame\n");
+            LOGD(TAG, "unable to get input video frame\n");
             av_frame_unref(inVideoFrame);
             inVideoFrame->width = videoContext->width;
             inVideoFrame->height = videoContext->height;
@@ -883,7 +880,7 @@ int concat_encode(const char *output_filename, const char **input_filenames, con
         }
 
         if (!got_audio) {
-            LOGW(TAG, "unable to get input audio frame\n");
+            LOGD(TAG, "unable to get input audio frame\n");
             av_frame_unref(inAudioFrame);
             inAudioFrame->nb_samples = 1024;
             inAudioFrame->sample_rate = audioContext->sample_rate;
@@ -921,9 +918,13 @@ int concat_encode(const char *output_filename, const char **input_filenames, con
                     encode_video = 0;
                 } else {
                     ret = av_frame_copy(outVideoFrame, inVideoFrame);
-                    if (ret < 0) LOGW(TAG, "\tget copy video frame failed\n");
+                    if (ret < 0) {
+                        LOGW(TAG, "\tget copy video frame failed\n");
+                    }
                     ret = av_frame_copy_props(outVideoFrame, inVideoFrame);
-                    if (ret < 0) LOGW(TAG, "\tget copy video frame props failed\n");
+                    if (ret < 0) {
+                        LOGW(TAG, "\tget copy video frame props failed\n");
+                    }
                     outVideoFrame->pts = video_pts++;
                     avcodec_send_frame(outVideoContext, outVideoFrame);
                 }
@@ -944,9 +945,13 @@ int concat_encode(const char *output_filename, const char **input_filenames, con
                     encode_audio = 0;
                 } else {
                     ret = av_frame_copy(outAudioFrame, inAudioFrame);
-                    if (ret < 0) LOGW(TAG, "\tget copy video frame failed\n");
+                    if (ret < 0) {
+                        LOGW(TAG, "\tget copy video frame failed\n");
+                    }
                     ret = av_frame_copy_props(outAudioFrame, inAudioFrame);
-                    if (ret < 0) LOGW(TAG, "\tget copy video frame props failed\n");
+                    if (ret < 0) {
+                        LOGW(TAG, "\tget copy video frame props failed\n");
+                    }
                     outAudioFrame->pts = audio_pts;
                     audio_pts += 1024;
                     avcodec_send_frame(outAudioContext, outAudioFrame);
@@ -965,7 +970,7 @@ int concat_encode(const char *output_filename, const char **input_filenames, con
             }
         }
 
-        cb(10+90/nb_inputs*i+45/nb_inputs);
+        if (callback != nullptr) callback(10 + 90 / nb_inputs * i + 45 / nb_inputs);
 
 
         av_seek_frame(inFormatContext, inAudioStream->index, 0, 0);
@@ -976,19 +981,19 @@ int concat_encode(const char *output_filename, const char **input_filenames, con
         do {
             ret = av_read_frame(inFormatContext, packet);
             if (ret == AVERROR_EOF) {
-                LOGW(TAG, "\tread fragment end of file\n");
+                LOGD(TAG, "\tread fragment end of file\n");
                 break;
             } else if (ret < 0) {
                 LOGE(TAG, "read fragment error: %s\n", av_err2str(ret));
-                break;
+                return -1;
             }
 
             if (packet->pts < 0) {
-                LOGW(TAG, "\nskip negative packet\n");
+                LOGD(TAG, "\nskip negative packet\n");
                 continue;
             }
             if (packet->flags & AV_PKT_FLAG_DISCARD) {
-                LOGW(TAG, "\nPacket is discard\n");
+                LOGD(TAG, "\nPacket is discard\n");
                 continue;
             }
 
@@ -1130,7 +1135,6 @@ int concat_encode(const char *output_filename, const char **input_filenames, con
         avio_closep(&outFmtContext->pb);
     }
 
-
     av_packet_free(&packet);
     avformat_free_context(outFmtContext);
 
@@ -1143,6 +1147,6 @@ int concat_encode(const char *output_filename, const char **input_filenames, con
         free(videos[i]);
     }
     free(videos);
-    cb(100);
+    if (callback != nullptr) callback(100);
     return 0;
 }

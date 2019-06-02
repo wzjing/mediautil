@@ -4,7 +4,7 @@
 #include "mediautil/remux.h"
 #include "common.h"
 
-#define ENCODE
+//#define ENCODE
 
 int main(int argc, char *argv[]) {
 
@@ -24,16 +24,22 @@ int main(int argc, char *argv[]) {
     });
 #else
     Mp4Meta *meta = nullptr;
-    getMeta(&meta, video);
-    ret = concat_no_encode(ts_filename, inputs, titles, 2, 40, 2);
+    getMeta(&meta, input);
+    ret = concat_no_encode(ts_filename, inputs, titles, 2, 40, 2, [](int progress) -> void {
+        printf("progress: %d\n", progress);
+    });
     if (ret == 0) {
-        ret = remux(output, ts_filename, meta);
+        ret = remux(output, ts_filename, meta, [](int progress) -> void {
+            printf("progress: %d\n", progress);
+        });
         remove(ts_filename);
     }
 #endif
 
     if (ret == 0) {
         PLAY(output)
+    } else  {
+        printf("failed: %d\n", ret);
     }
 
     return ret;

@@ -8,7 +8,8 @@ extern "C" {
 #include <libavutil/avutil.h>
 }
 
-int remux(const char *output_filename, const char *input_filename, Mp4Meta *meta) {
+int remux(const char *output_filename, const char *input_filename, Mp4Meta *meta, ProgressCallback callback) {
+    if (callback) callback(0);
     AVOutputFormat *outFormat = nullptr;
     AVFormatContext *inFmtContext = nullptr, *outFmtContext = nullptr;
     AVPacket pkt;
@@ -16,6 +17,7 @@ int remux(const char *output_filename, const char *input_filename, Mp4Meta *meta
     int stream_index = 0;
     int *stream_mapping = nullptr;
     int stream_mapping_size = 0;
+    int video_idx = 0;
 
     if ((ret = avformat_open_input(&inFmtContext, input_filename, nullptr, nullptr)) < 0) {
         fprintf(stderr, "Could not open input file '%s'", input_filename);
@@ -77,6 +79,7 @@ int remux(const char *output_filename, const char *input_filename, Mp4Meta *meta
                 av_dict_copy(&out_stream->metadata, meta->audioMeta, 0);
             } else if (in_stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
                 av_dict_copy(&out_stream->metadata, meta->videoMeta, 0);
+                video_idx = i;
             }
         }
     }
@@ -108,8 +111,16 @@ int remux(const char *output_filename, const char *input_filename, Mp4Meta *meta
         AVStream *in_stream, *out_stream;
 
         ret = av_read_frame(inFmtContext, &pkt);
-        if (ret < 0)
+        if (ret < 0) {
             break;
+        }
+
+        if (callback && pkt.stream_index == video_idx) {
+            int progress = 100 * pkt.pts/ inFmtContext->streams[video_idx]->duration;
+            if (progress > 100) progress = 99;
+            if (progress < 0) progress = 0;
+            callback(progress);
+        }
 
         in_stream = inFmtContext->streams[pkt.stream_index];
         if (pkt.stream_index >= stream_mapping_size ||
@@ -155,5 +166,6 @@ int remux(const char *output_filename, const char *input_filename, Mp4Meta *meta
         fprintf(stderr, "Error occurred: %s\n", av_err2str(ret));
         return 1;
     }
+    if (callback) callback(100);
     return 0;
 }

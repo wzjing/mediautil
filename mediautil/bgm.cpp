@@ -1,6 +1,3 @@
-//
-// Created by android1 on 2019/5/22.
-//
 
 #include "bgm.h"
 #include "log.h"
@@ -89,7 +86,9 @@ int openVideoFile(const char *file, AVFormatContext *&formatContext, AVCodecCont
     return 0;
 }
 
-int add_bgm(const char *output_filename, const char *input_filename, const char *bgm_filename, float bgm_volume) {
+int add_bgm(const char *output_filename, const char *input_filename, const char *bgm_filename, float bgm_volume,
+            ProgressCallback callback) {
+    if (callback != nullptr) callback(0);
     int ret = 0;
     AVFormatContext *outFmtContext = nullptr;
     AVFormatContext *inFmtContext = nullptr;
@@ -232,7 +231,6 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
 
     AVFrame *inputFrame = av_frame_alloc();
     AVFrame *bgmFrame = av_frame_alloc();
-//    AVFrame *swrFrame = av_frame_alloc();
     AVFrame *mixFrame = av_frame_alloc();
 
     do {
@@ -315,7 +313,6 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
             int got_mix = 0;
             if (got_bgm) {
                 ret = filter.getFrame(mixFrame);
-//                av_frame_unref(swrFrame);
                 if (ret < 0) {
                     LOGW(TAG, "\tunable to mix bgm music: %s\n", av_err2str(ret));
                 }
@@ -349,6 +346,13 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
                 return -1;
             }
             LOGD(TAG, "--\n");
+
+            if (callback) {
+                int progress = 100 * packet.pts / inAudioStream->duration;
+                if (progress > 100) progress = 99;
+                if (progress < 0) progress = 0;
+                callback(progress);
+            }
         }
     } while (true);
 
@@ -373,5 +377,6 @@ int add_bgm(const char *output_filename, const char *input_filename, const char 
     avcodec_free_context(&bgmAudioContext);
     avcodec_free_context(&outAudioContext);
 
+    if (callback != nullptr) callback(100);
     return 0;
 }

@@ -27,6 +27,39 @@ static int fontSize = 40;
 int filter_frame(AVFrame *frame, const char *title) {
     VideoFilter filter;
     int ret = 0;
+#ifdef ANDROID
+    char filter_description[128];
+    snprintf(filter_description, 128,
+             "gblur=sigma=20:steps=6[blur];[blur]drawtext=fontsize=52:fontcolor=white:text='%s':x=w/2-text_w/2:y=h/2-text_h/2",
+             title);
+    VideoConfig inConfig((AVPixelFormat) frame->format, frame->width,
+                         frame->height);
+    VideoConfig rgbaConfig(AV_PIX_FMT_RGBA, frame->width,
+                           frame->height);
+    VideoConfig outConfig((AVPixelFormat) frame->format, frame->width,
+                          frame->height);
+    filter.create("gblur=sigma=20:steps=6[blur];[blur]format=pix_fmts=rgba", &inConfig,
+                  &rgbaConfig);
+    filter.filter(frame, frame);
+    if (ret < 0) {
+        LOGE(TAG, "unable to filter frame to rgba color\n");
+        goto error;
+    }
+    filter.destroy();
+
+    drawText(env, frame->data[0], frame->width, frame->height, title,
+             fontSize, 0);
+
+    filter.create("format=pix_fmts=yuv420p", &rgbaConfig, &outConfig);
+    filter.filter(frame, frame);
+
+    ret = filter.filter(frame, frame);
+    if (ret < 0) {
+        LOGE(TAG, "unable to filter frame to yuv420p color\n");
+        goto error;
+    }
+    filter.destroy();
+#else
     char filter_description[512];
     snprintf(filter_description, 512,
              "gblur=sigma=20:steps=6[blur];"
@@ -53,6 +86,7 @@ int filter_frame(AVFrame *frame, const char *title) {
         LOGE(TAG, "unable to filter frame\n");
     }
     filter.destroy();
+#endif
     return ret;
 }
 
